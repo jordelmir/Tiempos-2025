@@ -1,5 +1,5 @@
 
-import type { User } from '../types';
+import type { User } from './types';
 
 export const mockUsers: User[] = [
   {
@@ -9,8 +9,8 @@ export const mockUsers: User[] = [
     phone: '8888-1234',
     balance: 15000,
     tickets: [
-      { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date() },
-      { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date() },
+      { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date(), draw: 'mediodia' },
+      { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date(), draw: 'noche' },
     ],
   },
   {
@@ -20,7 +20,7 @@ export const mockUsers: User[] = [
     phone: '7777-5678',
     balance: 5000,
     tickets: [
-      { id: 'tkt_3', number: '05', amount: 2000, purchaseDate: new Date() },
+      { id: 'tkt_3', number: '05', amount: 2000, purchaseDate: new Date(), draw: 'tarde' },
     ],
   },
   {

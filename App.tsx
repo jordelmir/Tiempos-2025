@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import type { User, Ticket } from './types';
-import { mockUsers } from './data/mockData';
+import { mockUsers } from './mockData';
 import AdminPanel from './components/AdminPanel';
 import ClientPanel from './components/ClientPanel';
 import Header from './components/Header';
@@ -42,7 +42,7 @@ const App: React.FC = () => {
 
       const ticketsWithIds: Ticket[] = newTickets.map(ticket => ({
         ...ticket,
-        id: `tkt_${Date.now()}_${Math.random()}`,
+        id: `tkt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         purchaseDate: new Date(),
       }));
 
