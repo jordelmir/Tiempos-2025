@@ -7,9 +7,10 @@ interface HeaderProps {
   view: 'admin' | 'client';
   setView: (view: 'admin' | 'client') => void;
   currentUser: User;
+  onLogout?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ view, setView, currentUser }) => {
+const Header: React.FC<HeaderProps> = ({ view, setView, currentUser, onLogout }) => {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(amount);
   };
@@ -36,18 +37,29 @@ const Header: React.FC<HeaderProps> = ({ view, setView, currentUser }) => {
             </button>
           </nav>
         </div>
-        {view === 'client' && (
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-sm text-brand-text-primary font-semibold">{currentUser.name}</div>
-              <div className="text-xs text-brand-text-secondary">Saldo Actual</div>
-            </div>
-            <div className="bg-brand-primary border border-brand-border rounded-lg px-4 py-2 flex items-center gap-2">
-              <WalletIcon className="h-5 w-5 text-brand-accent" />
-              <span className="font-bold text-brand-text-primary text-lg">{formatCurrency(currentUser.balance)}</span>
-            </div>
-          </div>
-        )}
+        
+        <div className="flex items-center gap-4">
+            {view === 'client' && (
+              <>
+                <div className="hidden sm:block text-right">
+                  <div className="text-sm text-brand-text-primary font-semibold">{currentUser.name}</div>
+                  <div className="text-xs text-brand-text-secondary">Saldo Actual</div>
+                </div>
+                <div className="bg-brand-primary border border-brand-border rounded-lg px-3 py-1.5 md:px-4 md:py-2 flex items-center gap-2">
+                  <WalletIcon className="h-5 w-5 text-brand-accent" />
+                  <span className="font-bold text-brand-text-primary text-sm md:text-lg">{formatCurrency(currentUser.balance)}</span>
+                </div>
+              </>
+            )}
+            {onLogout && (
+                <button 
+                    onClick={onLogout}
+                    className="text-brand-danger border border-brand-danger/20 bg-brand-danger/10 hover:bg-brand-danger hover:text-white px-3 py-1.5 rounded-md text-xs font-bold transition-all"
+                >
+                    SALIR
+                </button>
+            )}
+        </div>
       </div>
        <nav className="md:hidden flex items-center bg-brand-primary border-t border-brand-border p-2">
             <button
