@@ -1,0 +1,42 @@
+
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gestor de Tiempos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'brand-primary': '#0D1117',
+              'brand-secondary': '#161B22',
+              'brand-accent': '#58A6FF',
+              'brand-accent-hover': '#79C0FF',
+              'brand-border': '#30363D',
+              'brand-text-primary': '#C9D1D9',
+              'brand-text-secondary': '#8B949E',
+              'brand-success': '#3FB950',
+              'brand-danger': '#F85149',
+            },
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+</head>
+  <body class="bg-brand-primary">
+    <div id="root"></div>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "name": "Gestor de Tiempos",
+  "description": "Una aplicación web profesional para gestionar la venta de 'tiempos' y recargar las cuentas de los clientes. Permite a los administradores recargar saldos y a los clientes comprar números fácilmente.",
+  "requestFramePermissions": []
+}
