@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import type { User, Ticket, DrawType, DailyResult } from '../types';
+import React, { useState } from 'react';
+import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor } from '../types';
 import Card from './common/Card';
 import Input from './common/Input';
 import Button from './common/Button';
@@ -12,87 +12,46 @@ import {
   CheckCircleIcon, 
   SunIcon, 
   MoonIcon,
-  SunsetIcon 
+  SunsetIcon,
+  CalendarIcon,
+  RefreshIcon,
+  FireIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
   user: User;
   onPurchase: (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => void;
+  dailyResults: DailyResult[];
+  historyResults: HistoryResult[];
+  nextDrawTime: string;
+  isSyncing: boolean;
 }
 
 type NewTicket = Omit<Ticket, 'id' | 'purchaseDate'>;
 
-const ClientPanel: React.FC<ClientPanelProps> = ({ user, onPurchase }) => {
+const ClientPanel: React.FC<ClientPanelProps> = ({ 
+    user, 
+    onPurchase, 
+    dailyResults, 
+    historyResults, 
+    nextDrawTime, 
+    isSyncing 
+}) => {
   const [number, setNumber] = useState('');
   const [amount, setAmount] = useState('');
+  const [playReventados, setPlayReventados] = useState(false);
+  const [reventadosAmount, setReventadosAmount] = useState('');
   const [selectedDraw, setSelectedDraw] = useState<DrawType>('mediodia');
   const [cart, setCart] = useState<NewTicket[]>([]);
   const [error, setError] = useState('');
-  const [dailyResults, setDailyResults] = useState<DailyResult[]>([]);
-  const [nextDrawTime, setNextDrawTime] = useState<string>('');
 
-  const totalCost = cart.reduce((sum, item) => sum + item.amount, 0);
+  const totalCost = cart.reduce((sum, item) => sum + item.amount + (item.reventadosAmount || 0), 0);
 
-  // Configuración de horarios
-  const drawSchedules = {
-    mediodia: { hour: 12, minute: 55, label: 'Mediodía' },
-    tarde: { hour: 16, minute: 30, label: 'Tarde' },
-    noche: { hour: 19, minute: 30, label: 'Noche' }
+  const DRAW_LABELS: Record<DrawType, string> = {
+    mediodia: 'MEDIODÍA',
+    tarde: 'TARDE',
+    noche: 'NOCHE'
   };
-
-  useEffect(() => {
-    const updateStatus = () => {
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const currentTimeValue = currentHour * 60 + currentMinute;
-
-      // Simulación de resultados basados en hora
-      // Mediodía se revela a las 13:00, Tarde 17:00, Noche 20:00
-      const results: DailyResult[] = [
-        { 
-          date: now.toLocaleDateString(), 
-          draw: 'mediodia', 
-          number: currentTimeValue >= (13 * 60) ? '45' : null 
-        },
-        { 
-          date: now.toLocaleDateString(), 
-          draw: 'tarde', 
-          number: currentTimeValue >= (17 * 60) ? '82' : null 
-        },
-        { 
-          date: now.toLocaleDateString(), 
-          draw: 'noche', 
-          number: currentTimeValue >= (20 * 60) ? '19' : null 
-        },
-      ];
-      setDailyResults(results);
-
-      // Calcular próximo sorteo
-      let targetDraw = drawSchedules.mediodia;
-      let targetTime = targetDraw.hour * 60 + targetDraw.minute;
-      
-      if (currentTimeValue > (19 * 60 + 30)) {
-        // Mañana mediodía
-        setNextDrawTime("Mañana 12:55 PM");
-      } else {
-        if (currentTimeValue > (16 * 60 + 30)) {
-          targetDraw = drawSchedules.noche;
-        } else if (currentTimeValue > (12 * 60 + 55)) {
-          targetDraw = drawSchedules.tarde;
-        }
-        
-        const diff = (targetDraw.hour * 60 + targetDraw.minute) - currentTimeValue;
-        const hours = Math.floor(diff / 60);
-        const minutes = diff % 60;
-        setNextDrawTime(`${hours}h ${minutes}m para ${targetDraw.label}`);
-      }
-    };
-
-    updateStatus();
-    const interval = setInterval(updateStatus, 60000); // Actualizar cada minuto
-    return () => clearInterval(interval);
-  }, []);
 
   const handleAddTicket = (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +59,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({ user, onPurchase }) => {
 
     const num = parseInt(number, 10);
     const amnt = parseInt(amount, 10);
+    const revAmnt = playReventados ? parseInt(reventadosAmount, 10) : 0;
 
     if (isNaN(num) || num < 0 || num > 99) {
       setError('El número debe estar entre 00 y 99.');
@@ -109,11 +69,24 @@ const ClientPanel: React.FC<ClientPanelProps> = ({ user, onPurchase }) => {
       setError('El monto debe ser un número positivo.');
       return;
     }
+    if (playReventados && (isNaN(revAmnt) || revAmnt <= 0)) {
+      setError('El monto de reventados debe ser un número positivo.');
+      return;
+    }
 
     const formattedNumber = num.toString().padStart(2, '0');
-    setCart([...cart, { number: formattedNumber, amount: amnt, draw: selectedDraw }]);
+    setCart([...cart, { 
+      number: formattedNumber, 
+      amount: amnt, 
+      draw: selectedDraw,
+      reventadosAmount: playReventados ? revAmnt : undefined
+    }]);
+    
+    // Reset form
     setNumber('');
     setAmount('');
+    setReventadosAmount('');
+    setPlayReventados(false);
   };
 
   const handleRemoveFromCart = (index: number) => {
@@ -130,7 +103,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({ user, onPurchase }) => {
   }
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(amount);
+    return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(amount);
   };
 
   const getDrawIcon = (type: DrawType, className: string = "h-5 w-5") => {
@@ -141,236 +114,353 @@ const ClientPanel: React.FC<ClientPanelProps> = ({ user, onPurchase }) => {
     }
   };
 
-  const getDrawLabel = (type: DrawType) => {
-    switch(type) {
-      case 'mediodia': return 'Mediodía (12:55 PM)';
-      case 'tarde': return 'Tarde (4:30 PM)';
-      case 'noche': return 'Noche (7:30 PM)';
-    }
-  };
-
   return (
     <div className="space-y-8">
-      {/* Banner de Resultados del Día */}
-      <section className="bg-gradient-to-br from-brand-secondary to-[#0f131a] border border-brand-border rounded-xl p-6 shadow-2xl relative overflow-hidden">
-        {/* Decorative elements */}
-        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-brand-accent/20 rounded-full blur-xl"></div>
-        <div className="absolute bottom-0 left-0 -mb-4 -ml-4 w-32 h-32 bg-brand-success/10 rounded-full blur-xl"></div>
-
-        <div className="relative z-10">
-          <div className="flex flex-col md:flex-row justify-between items-center mb-8">
-            <div className="text-center md:text-left mb-4 md:mb-0">
-              <h2 className="text-3xl font-black text-white tracking-tight uppercase italic transform -skew-x-6">
-                <span className="text-brand-accent">Top</span> Mundial
-              </h2>
-              <p className="text-brand-text-secondary text-sm mt-1">Resultados Oficiales del Día</p>
-            </div>
-            <div className="bg-brand-primary/80 border border-brand-border px-4 py-2 rounded-lg shadow-inner">
-               <span className="text-brand-text-secondary text-xs uppercase font-bold mr-2">Próximo Sorteo:</span>
-               <span className="text-brand-accent font-mono font-bold animate-pulse">{nextDrawTime}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto">
-              {dailyResults.map((res) => (
-                <div key={res.draw} className="bg-brand-primary/50 backdrop-blur-sm border border-brand-border rounded-xl p-5 flex items-center justify-between relative overflow-hidden group hover:border-brand-accent/50 transition-all duration-300">
-                  <div className="absolute right-0 top-0 h-full w-1 bg-brand-border group-hover:bg-brand-accent transition-colors"></div>
-                  
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2 mb-2 text-brand-text-secondary group-hover:text-brand-text-primary transition-colors">
-                      {getDrawIcon(res.draw, "h-5 w-5")}
-                      <span className="text-xs font-bold uppercase tracking-widest">{res.draw}</span>
+      {/* HERO: Live Results */}
+      <section className="relative overflow-hidden rounded-3xl border border-brand-border bg-brand-secondary/50 backdrop-blur-xl shadow-2xl">
+        <div className="absolute inset-0 bg-hero-glow opacity-20 pointer-events-none"></div>
+        
+        <div className="relative z-10 p-6 md:p-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+                <div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className={`inline-block w-2 h-2 rounded-full ${isSyncing ? 'bg-brand-accent animate-ping' : 'bg-brand-success'}`}></span>
+                        <span className="text-xs font-bold uppercase tracking-widest text-brand-text-secondary">Resultados en Vivo</span>
                     </div>
-                    <div className="text-xs text-brand-text-secondary">
-                       {res.draw === 'mediodia' ? '12:55 PM' : res.draw === 'tarde' ? '4:30 PM' : '7:30 PM'}
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    {res.number ? (
-                      <div className="flex items-center justify-center w-16 h-16 bg-brand-secondary rounded-full border-2 border-brand-accent/50 shadow-[0_0_15px_rgba(88,166,255,0.3)]">
-                        <span className="text-3xl font-black text-white">{res.number}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center w-16 h-16 bg-brand-secondary/50 rounded-full border border-dashed border-brand-text-secondary">
-                        <span className="text-xs font-bold text-brand-text-secondary">???</span>
-                      </div>
-                    )}
-                  </div>
+                    <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter">
+                        HOY <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-accent to-purple-400">GANAMOS.</span>
+                    </h2>
                 </div>
-              ))}
-          </div>
+                <div className="text-right hidden md:block">
+                     <div className="text-xs text-brand-text-secondary uppercase font-bold mb-1">Próximo Sorteo</div>
+                     <div className="text-xl font-mono font-bold text-brand-accent">{nextDrawTime}</div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {dailyResults.map((res) => (
+                    <div key={res.draw} className="group relative bg-brand-primary/60 rounded-2xl p-5 border border-brand-border hover:border-brand-accent/50 transition-all duration-300 overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                            {getDrawIcon(res.draw, "h-24 w-24")}
+                        </div>
+                        
+                        <div className="flex items-center justify-between mb-4 relative z-10">
+                             <div className="flex items-center gap-2">
+                                <div className={`p-2 rounded-lg ${res.draw === 'mediodia' ? 'bg-orange-500/20 text-orange-400' : res.draw === 'tarde' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                    {getDrawIcon(res.draw)}
+                                </div>
+                                <span className="font-bold text-white uppercase text-sm">{DRAW_LABELS[res.draw]}</span>
+                             </div>
+                        </div>
+
+                        <div className="flex justify-center items-center gap-4 relative z-10 py-2">
+                            {res.number ? (
+                                <>
+                                    {/* Main Number Ball */}
+                                    <div className="relative w-20 h-20 flex items-center justify-center rounded-full bg-gradient-to-b from-white to-gray-300 shadow-[0_5px_15px_rgba(255,255,255,0.2)] text-brand-primary text-4xl font-black transform group-hover:scale-110 transition-transform duration-500">
+                                        {res.number}
+                                        <div className="absolute top-2 left-4 w-6 h-3 bg-white rounded-full opacity-50 filter blur-[1px]"></div>
+                                    </div>
+                                    
+                                    {/* Reventados Indicator */}
+                                    <div className="flex flex-col items-center gap-1">
+                                        {res.ballColor === 'roja' && res.reventadosNumber ? (
+                                             <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_15px_rgba(239,68,68,0.6)] text-white text-lg font-bold border border-red-400 animate-pulse-slow">
+                                                 {res.reventadosNumber}
+                                             </div>
+                                        ) : (
+                                            <div className="w-10 h-10 flex items-center justify-center rounded-full bg-brand-tertiary border border-brand-border text-brand-text-secondary text-xs font-bold">
+                                                -
+                                            </div>
+                                        )}
+                                        <span className="text-[10px] uppercase font-bold text-brand-text-secondary">
+                                            {res.ballColor === 'roja' ? 'ROJA' : 'BLANCA'}
+                                        </span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="h-20 flex items-center justify-center w-full">
+                                    <span className="text-xs font-mono text-brand-text-secondary animate-pulse">PENDIENTE DE SORTEO</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <Card className="border-t-4 border-t-brand-accent">
-            <h2 className="text-2xl font-bold mb-6 text-brand-text-primary flex items-center gap-2">
-              <PlusIcon className="h-6 w-6 text-brand-accent"/> Nueva Jugada
-            </h2>
-            
-            <form onSubmit={handleAddTicket} className="space-y-6">
-              {/* Selector de Sorteo */}
-              <div>
-                <label className="block text-sm font-bold text-brand-text-secondary mb-3 uppercase tracking-wider">Seleccione Horario</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {(['mediodia', 'tarde', 'noche'] as DrawType[]).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setSelectedDraw(type)}
-                      className={`
-                        relative flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200
-                        ${selectedDraw === type 
-                          ? 'bg-brand-accent/10 border-brand-accent text-brand-accent shadow-lg shadow-brand-accent/10' 
-                          : 'bg-brand-primary border-brand-border text-brand-text-secondary hover:border-brand-text-secondary hover:bg-brand-secondary'
-                        }
-                      `}
-                    >
-                      <div className={`mb-2 p-2 rounded-full ${selectedDraw === type ? 'bg-brand-accent text-white' : 'bg-brand-secondary text-brand-text-secondary'}`}>
-                         {getDrawIcon(type, "h-6 w-6")}
-                      </div>
-                      <span className="font-bold text-sm uppercase">{type}</span>
-                      <span className="text-xs opacity-80 mt-1 font-mono">
-                        {type === 'mediodia' ? '12:55 PM' : type === 'tarde' ? '04:30 PM' : '07:30 PM'}
-                      </span>
-                      {selectedDraw === type && (
-                        <div className="absolute -top-2 -right-2 bg-brand-accent text-white rounded-full p-1">
-                          <CheckCircleIcon className="h-4 w-4" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* LEFT COLUMN: Betting Form & History */}
+        <div className="lg:col-span-8 space-y-8">
+           
+           {/* TICKET CREATOR */}
+           <Card className="relative overflow-hidden">
+                <div className="flex items-center justify-between mb-8 border-b border-brand-border pb-4">
+                    <div className="flex items-center gap-3">
+                         <div className="bg-brand-accent/20 p-2 rounded-lg text-brand-accent">
+                             <PlusIcon className="h-6 w-6" />
+                         </div>
+                         <div>
+                             <h3 className="text-xl font-bold text-white">Crear Jugada</h3>
+                             <p className="text-xs text-brand-text-secondary">Arma tu combinación ganadora</p>
+                         </div>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2 bg-brand-tertiary px-3 py-1 rounded-lg border border-brand-border">
+                        <FireIcon className="h-4 w-4 text-brand-danger" />
+                        <span className="text-xs font-bold text-brand-text-primary">200x Reventados</span>
+                    </div>
+                </div>
+
+                <form onSubmit={handleAddTicket} className="space-y-8">
+                    {/* Draw Selection */}
+                    <div>
+                        <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3">1. Elige el Sorteo</label>
+                        <div className="grid grid-cols-3 gap-3">
+                            {(['mediodia', 'tarde', 'noche'] as DrawType[]).map((type) => (
+                                <button
+                                    key={type}
+                                    type="button"
+                                    onClick={() => setSelectedDraw(type)}
+                                    className={`
+                                        relative flex flex-col items-center justify-center py-4 px-2 rounded-xl border-2 transition-all duration-200
+                                        ${selectedDraw === type 
+                                            ? 'bg-brand-accent/10 border-brand-accent text-brand-accent shadow-[0_0_20px_rgba(79,70,229,0.2)]' 
+                                            : 'bg-brand-tertiary/50 border-brand-border text-brand-text-secondary hover:border-brand-text-secondary/50 hover:bg-brand-tertiary'
+                                        }
+                                    `}
+                                >
+                                    <div className={`mb-2 ${selectedDraw === type ? 'text-brand-accent' : 'text-brand-text-secondary'}`}>
+                                        {getDrawIcon(type, "h-6 w-6")}
+                                    </div>
+                                    <span className="font-bold text-xs uppercase">{DRAW_LABELS[type]}</span>
+                                </button>
+                            ))}
                         </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-1">
-                   <Input
-                    label="Número (00-99)"
-                    id="number"
-                    type="tel"
-                    value={number}
-                    onChange={(e) => setNumber(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
-                    placeholder="00"
-                    className="text-center text-3xl font-mono tracking-widest font-bold"
-                    maxLength={2}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Input
-                    label="Monto (₡)"
-                    id="amount"
-                    type="tel"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="1000"
-                    className="text-center text-3xl font-mono font-bold"
-                  />
-                </div>
-              </div>
+                    {/* Inputs */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3">2. Tu Número</label>
+                            <div className="relative">
+                                <input
+                                    id="number"
+                                    type="tel"
+                                    value={number}
+                                    onChange={(e) => setNumber(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                                    placeholder="00"
+                                    className="w-full bg-brand-tertiary/50 border border-brand-border rounded-2xl text-center text-5xl font-black text-white py-6 focus:ring-2 focus:ring-brand-accent focus:border-transparent focus:bg-brand-tertiary transition-all placeholder-brand-text-secondary/20 font-mono"
+                                    maxLength={2}
+                                />
+                                <span className="absolute top-4 left-4 text-[10px] font-bold text-brand-text-secondary uppercase">NÚMERO</span>
+                            </div>
+                        </div>
+                         <div>
+                            <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3">3. Monto a Apostar</label>
+                            <div className="relative">
+                                <input
+                                    id="amount"
+                                    type="tel"
+                                    value={amount}
+                                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                                    placeholder="1000"
+                                    className="w-full bg-brand-tertiary/50 border border-brand-border rounded-2xl text-center text-4xl font-bold text-brand-success py-8 focus:ring-2 focus:ring-brand-success focus:border-transparent focus:bg-brand-tertiary transition-all placeholder-brand-text-secondary/20 font-mono"
+                                />
+                                <span className="absolute top-4 left-4 text-[10px] font-bold text-brand-text-secondary uppercase">COLONES</span>
+                            </div>
+                        </div>
+                    </div>
 
-              <Button type="submit" className="w-full py-4 text-lg font-bold uppercase tracking-wide shadow-lg hover:shadow-brand-accent/20 transform hover:-translate-y-0.5 transition-all">
-                Agregar a la Lista
-              </Button>
-            </form>
-            {error && <div className="mt-4 p-4 bg-brand-danger/10 border border-brand-danger/20 rounded-lg text-brand-danger text-center font-medium animate-pulse">{error}</div>}
-          </Card>
+                    {/* Reventados Toggle */}
+                    <div className="bg-gradient-to-r from-red-900/10 to-transparent border border-red-500/20 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-4">
+                             <div className="flex items-center gap-3">
+                                 <div className="bg-red-500/20 p-2 rounded-lg text-red-500">
+                                     <FireIcon className="h-5 w-5" />
+                                 </div>
+                                 <div>
+                                     <h4 className="font-bold text-white text-sm">Jugar Reventados</h4>
+                                     <p className="text-[10px] text-brand-text-secondary">Multiplica tu inversión hasta 200x</p>
+                                 </div>
+                             </div>
+                             <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={playReventados} 
+                                    onChange={(e) => setPlayReventados(e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-brand-secondary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600 border border-brand-border"></div>
+                            </label>
+                        </div>
 
-          <Card className="mt-8">
-              <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-brand-text-primary">
-                <TicketIcon className="h-6 w-6 text-brand-text-secondary"/> Historial Reciente
-              </h3>
-              {user.tickets.length > 0 ? (
-                  <div className="max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                      <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {user.tickets.slice().reverse().map(ticket => (
-                              <li key={ticket.id} className="bg-brand-primary p-4 rounded-lg border border-brand-border hover:border-brand-accent/50 transition-colors flex justify-between items-center group">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg bg-brand-secondary border border-brand-border group-hover:border-brand-accent group-hover:text-brand-accent transition-colors`}>
-                                      {getDrawIcon(ticket.draw)}
-                                    </div>
-                                    <div>
-                                      <span className="font-mono text-2xl text-white font-bold">{ticket.number}</span>
-                                      <span className="block text-[10px] text-brand-text-secondary uppercase tracking-wider">{ticket.draw}</span>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                      <div className="font-bold text-brand-success">{formatCurrency(ticket.amount)}</div>
-                                      <div className="text-xs text-brand-text-secondary">{ticket.purchaseDate.toLocaleDateString()}</div>
-                                  </div>
-                              </li>
-                          ))}
-                      </ul>
-                  </div>
-              ) : (
-                  <div className="text-center py-12 bg-brand-primary/30 rounded-lg border border-brand-border border-dashed">
-                    <TicketIcon className="h-12 w-12 mx-auto text-brand-border mb-2 opacity-50"/>
-                    <p className="text-brand-text-secondary">No hay jugadas registradas aún.</p>
-                  </div>
-              )}
-          </Card>
+                        {playReventados && (
+                            <div className="animate-fade-in-up">
+                                <Input
+                                    label="Monto Reventados"
+                                    value={reventadosAmount}
+                                    onChange={(e) => setReventadosAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                                    placeholder="Monto adicional..."
+                                    className="bg-brand-secondary border-red-500/30 focus:ring-red-500"
+                                    icon={<span className="font-bold text-red-500">₡</span>}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <Button variant="primary" size="lg" type="submit" className="w-full uppercase tracking-widest text-sm shadow-xl shadow-brand-accent/20">
+                        <PlusIcon className="h-5 w-5" /> Agregar al Carrito
+                    </Button>
+
+                    {error && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs font-bold text-center">
+                            {error}
+                        </div>
+                    )}
+                </form>
+           </Card>
+
+           {/* HISTORY TABLE */}
+           <Card>
+               <div className="flex items-center justify-between mb-6">
+                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                       <CalendarIcon className="h-5 w-5 text-brand-accent" /> Historial Semanal
+                   </h3>
+                   <button className="text-brand-accent hover:text-white transition-colors">
+                       <RefreshIcon className="h-4 w-4" />
+                   </button>
+               </div>
+               
+               <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-brand-text-secondary uppercase bg-brand-secondary/50">
+                            <tr>
+                                <th className="px-4 py-3 rounded-l-lg">Fecha</th>
+                                <th className="px-4 py-3 text-center">Mediodía</th>
+                                <th className="px-4 py-3 text-center">Tarde</th>
+                                <th className="px-4 py-3 rounded-r-lg text-center">Noche</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-brand-border">
+                            {historyResults.map((item) => (
+                                <tr key={item.date} className="hover:bg-white/5 transition-colors">
+                                    <td className="px-4 py-3 font-mono text-brand-text-primary">{item.date}</td>
+                                    <td className="px-4 py-3 text-center">
+                                        <div className="inline-flex items-center justify-center gap-2 bg-brand-secondary border border-brand-border px-2 py-1 rounded-md">
+                                            <span className="font-bold text-white">{item.results.mediodia.number}</span>
+                                            {item.results.mediodia.ball === 'roja' ? <span className="w-2 h-2 bg-red-500 rounded-full"></span> : <span className="w-2 h-2 bg-white/20 rounded-full"></span>}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                        <div className="inline-flex items-center justify-center gap-2 bg-brand-secondary border border-brand-border px-2 py-1 rounded-md">
+                                            <span className="font-bold text-white">{item.results.tarde.number}</span>
+                                            {item.results.tarde.ball === 'roja' ? <span className="w-2 h-2 bg-red-500 rounded-full"></span> : <span className="w-2 h-2 bg-white/20 rounded-full"></span>}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                        <div className="inline-flex items-center justify-center gap-2 bg-brand-secondary border border-brand-border px-2 py-1 rounded-md">
+                                            <span className="font-bold text-white">{item.results.noche.number}</span>
+                                            {item.results.noche.ball === 'roja' ? <span className="w-2 h-2 bg-red-500 rounded-full"></span> : <span className="w-2 h-2 bg-white/20 rounded-full"></span>}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+               </div>
+           </Card>
         </div>
 
-        <div className="lg:col-span-1">
-          <Card className="sticky top-24 border border-brand-accent shadow-[0_0_30px_rgba(88,166,255,0.1)]">
-              <div className="flex items-center justify-between mb-6 border-b border-brand-border pb-4">
-                <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                  <ShoppingCartIcon className="h-6 w-6 text-brand-accent"/> Tu Jugada
-                </h3>
-                <span className="bg-brand-accent text-brand-primary text-xs font-extrabold px-2 py-1 rounded-full">{cart.length}</span>
-              </div>
-              
-              {cart.length > 0 ? (
-                  <>
-                      <div className="max-h-80 overflow-y-auto pr-1 mb-6 space-y-2 custom-scrollbar">
-                        {cart.map((item, index) => (
-                            <div key={index} className="flex justify-between items-center bg-brand-primary p-3 rounded-lg border border-brand-border group hover:border-brand-border/80">
-                                <div className="flex items-center gap-3">
-                                    <div className="text-brand-text-secondary group-hover:text-brand-accent transition-colors">
-                                      {getDrawIcon(item.draw, "h-4 w-4")}
-                                    </div>
-                                    <div>
-                                      <div className="font-mono text-xl font-bold text-white">{item.number}</div>
-                                      <div className="text-[10px] text-brand-text-secondary uppercase tracking-wider">{item.draw}</div>
-                                    </div>
+        {/* RIGHT COLUMN: Cart */}
+        <div className="lg:col-span-4">
+            <div className="sticky top-24 space-y-6">
+                <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)]" noPadding>
+                    <div className="bg-brand-accent/10 p-6 border-b border-brand-border flex justify-between items-center">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            <ShoppingCartIcon className="h-5 w-5 text-brand-accent"/> Tu Jugada
+                        </h3>
+                        <span className="bg-brand-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg">
+                            {cart.length} Items
+                        </span>
+                    </div>
+                    
+                    <div className="p-6">
+                        {cart.length > 0 ? (
+                            <div className="space-y-4">
+                                <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                                    {cart.map((item, index) => (
+                                        <div key={index} className="bg-brand-tertiary/50 p-3 rounded-xl border border-brand-border flex justify-between items-center group hover:border-brand-accent/50 transition-colors">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-lg bg-brand-secondary flex flex-col items-center justify-center border border-brand-border">
+                                                    <span className="text-lg font-black text-white leading-none">{item.number}</span>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">{DRAW_LABELS[item.draw]}</div>
+                                                    <div className="text-xs text-white font-bold">Regular: {formatCurrency(item.amount)}</div>
+                                                    {item.reventadosAmount && item.reventadosAmount > 0 && (
+                                                        <div className="text-[10px] text-red-400 font-bold flex items-center gap-1">
+                                                            <FireIcon className="h-3 w-3"/> {formatCurrency(item.reventadosAmount)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <button onClick={() => handleRemoveFromCart(index)} className="text-brand-text-secondary hover:text-red-500 transition-colors p-2 hover:bg-white/5 rounded-lg">
+                                                <TrashIcon className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="font-bold text-brand-text-primary">{formatCurrency(item.amount)}</span>
-                                    <button onClick={() => handleRemoveFromCart(index)} className="text-brand-text-secondary hover:text-brand-danger transition-colors p-1.5 rounded-md hover:bg-brand-secondary">
-                                        <TrashIcon className="h-4 w-4" />
-                                    </button>
+
+                                <div className="border-t border-brand-border pt-4 mt-4">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="text-brand-text-secondary text-sm">Total a Pagar</span>
+                                        <span className="text-2xl font-black text-brand-success">{formatCurrency(totalCost)}</span>
+                                    </div>
+                                    <Button 
+                                        onClick={handlePurchase} 
+                                        variant="success" 
+                                        className="w-full uppercase tracking-widest font-bold text-sm shadow-xl shadow-brand-success/20"
+                                        disabled={totalCost > user.balance}
+                                    >
+                                        Confirmar Compra
+                                    </Button>
+                                    {totalCost > user.balance && (
+                                        <p className="text-center text-xs text-red-400 mt-2 font-bold">Saldo insuficiente</p>
+                                    )}
                                 </div>
                             </div>
-                        ))}
-                      </div>
-                      
-                      <div className="bg-brand-primary rounded-lg p-4 mb-6 border border-brand-border">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-brand-text-secondary text-sm">Cantidad de números:</span>
-                            <span className="text-white font-medium">{cart.length}</span>
-                          </div>
-                          <div className="flex justify-between items-end pt-2 border-t border-brand-border">
-                              <span className="text-brand-text-secondary">Total a Pagar:</span>
-                              <span className="text-2xl font-black text-white tracking-tight">{formatCurrency(totalCost)}</span>
-                          </div>
-                      </div>
+                        ) : (
+                            <div className="text-center py-12 opacity-50">
+                                <ShoppingCartIcon className="h-12 w-12 mx-auto mb-3 text-brand-text-secondary"/>
+                                <p className="text-sm text-brand-text-secondary">Tu carrito está vacío.</p>
+                            </div>
+                        )}
+                    </div>
+                </Card>
 
-                      <Button onClick={handlePurchase} variant="success" className="w-full py-4 text-lg font-bold shadow-lg shadow-brand-success/20" disabled={totalCost > user.balance}>
-                          <CheckCircleIcon className="h-6 w-6"/> CONFIRMAR
-                      </Button>
-                      <p className="text-center text-xs text-brand-text-secondary mt-4 opacity-60">
-                        Al confirmar, acepta los términos y condiciones del sorteo.
-                      </p>
-                  </>
-              ) : (
-                  <div className="text-center py-12 flex flex-col items-center justify-center opacity-60">
-                    <ShoppingCartIcon className="h-12 w-12 text-brand-text-secondary mb-3"/>
-                    <p className="text-brand-text-secondary text-sm">Seleccione sus números de la suerte para comenzar.</p>
-                  </div>
-              )}
-          </Card>
+                {/* Recent User Tickets Widget */}
+                <Card className="bg-brand-secondary/30">
+                    <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2">
+                        <TicketIcon className="h-4 w-4" /> Jugadas Recientes
+                    </h4>
+                    {user.tickets.length > 0 ? (
+                        <div className="space-y-2">
+                            {user.tickets.slice().reverse().slice(0, 3).map(t => (
+                                <div key={t.id} className="flex justify-between items-center p-2 rounded-lg bg-brand-primary/50 border border-brand-border text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-white bg-brand-secondary px-2 py-1 rounded">{t.number}</span>
+                                        <span className="text-brand-text-secondary">{DRAW_LABELS[t.draw].substring(0,3)}</span>
+                                    </div>
+                                    <span className="text-brand-success font-mono">{formatCurrency(t.amount)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-brand-text-secondary text-center italic">Sin actividad reciente</p>
+                    )}
+                </Card>
+            </div>
         </div>
       </div>
     </div>

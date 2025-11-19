@@ -8,6 +8,7 @@ export const mockUsers: User[] = [
     email: 'elena.r@example.com',
     phone: '8888-1234',
     balance: 15000,
+    role: 'admin', // Elena is the Admin
     tickets: [
       { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date(), draw: 'mediodia' },
       { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date(), draw: 'noche' },
@@ -19,6 +20,7 @@ export const mockUsers: User[] = [
     email: 'carlos.v@example.com',
     phone: '7777-5678',
     balance: 5000,
+    role: 'client', // Client role
     tickets: [
       { id: 'tkt_3', number: '05', amount: 2000, purchaseDate: new Date(), draw: 'tarde' },
     ],
@@ -29,6 +31,7 @@ export const mockUsers: User[] = [
     email: 'ana.m@example.com',
     phone: '6666-9012',
     balance: 25000,
+    role: 'client', // Client role
     tickets: [],
   },
 ];

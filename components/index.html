@@ -12,16 +12,33 @@
         theme: {
           extend: {
             colors: {
-              'brand-primary': '#0D1117',
-              'brand-secondary': '#161B22',
-              'brand-accent': '#58A6FF',
-              'brand-accent-hover': '#79C0FF',
-              'brand-border': '#30363D',
-              'brand-text-primary': '#C9D1D9',
-              'brand-text-secondary': '#8B949E',
-              'brand-success': '#3FB950',
-              'brand-danger': '#F85149',
+              'brand-primary': '#0B0F19',   // Deepest space blue
+              'brand-secondary': '#121622', // Card background
+              'brand-tertiary': '#1E2332',  // Hover/Active states
+              'brand-accent': '#4F46E5',    // Indigo-600
+              'brand-accent-hover': '#6366F1', // Indigo-500
+              'brand-accent-glow': 'rgba(79, 70, 229, 0.5)',
+              'brand-border': 'rgba(255,255,255,0.08)',
+              'brand-text-primary': '#F8FAFC',
+              'brand-text-secondary': '#94A3B8',
+              'brand-success': '#10B981',
+              'brand-danger': '#EF4444',
+              'brand-gold': '#F59E0B',
             },
+            backgroundImage: {
+              'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+              'hero-glow': 'conic-gradient(from 180deg at 50% 50%, #1e293b 0deg, #0f172a 360deg)',
+            },
+            animation: {
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'float': 'float 6s ease-in-out infinite',
+            },
+            keyframes: {
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              }
+            }
           }
         }
       }
@@ -36,7 +53,8 @@
 }
 </script>
 </head>
-  <body class="bg-brand-primary">
+  <body class="bg-brand-primary text-brand-text-primary antialiased selection:bg-brand-accent selection:text-white">
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
