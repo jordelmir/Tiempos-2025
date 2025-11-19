@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor } from '../types';
 import Card from './common/Card';
@@ -15,7 +14,9 @@ import {
   SunsetIcon,
   CalendarIcon,
   RefreshIcon,
-  FireIcon
+  FireIcon,
+  LinkIcon,
+  GlobeAltIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
@@ -127,9 +128,18 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         <span className={`inline-block w-2 h-2 rounded-full ${isSyncing ? 'bg-brand-accent animate-ping' : 'bg-brand-success'}`}></span>
                         <span className="text-xs font-bold uppercase tracking-widest text-brand-text-secondary">Resultados en Vivo</span>
                     </div>
-                    <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter">
+                    <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter mb-2">
                         HOY <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-accent to-purple-400">GANAMOS.</span>
                     </h2>
+                    <a 
+                      href="https://www.jps.go.cr/resultados/nuevos-tiempos-reventados" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary hover:text-white hover:bg-white/10 hover:border-brand-accent/50 transition-all group"
+                    >
+                      <LinkIcon className="h-3 w-3 text-brand-accent group-hover:scale-110 transition-transform"/>
+                      Verificar en JPS.go.cr
+                    </a>
                 </div>
                 <div className="text-right hidden md:block">
                      <div className="text-xs text-brand-text-secondary uppercase font-bold mb-1">Próximo Sorteo</div>
@@ -327,9 +337,11 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
                        <CalendarIcon className="h-5 w-5 text-brand-accent" /> Historial Semanal
                    </h3>
-                   <button className="text-brand-accent hover:text-white transition-colors">
-                       <RefreshIcon className="h-4 w-4" />
-                   </button>
+                   <div className="flex items-center gap-2">
+                       <a href="https://www.jps.go.cr/resultados/nuevos-tiempos-reventados" target="_blank" rel="noopener noreferrer" className="text-[10px] text-brand-accent hover:underline flex items-center gap-1 uppercase font-bold">
+                           <GlobeAltIcon className="h-3 w-3"/> Ver Oficial
+                       </a>
+                   </div>
                </div>
                
                <div className="overflow-x-auto">
