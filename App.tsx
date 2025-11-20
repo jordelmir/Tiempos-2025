@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Ticket, DailyResult, DrawType, BallColor, HistoryResult } from './types';
 import { fetchOfficialData } from './utils/jpsAgent';
@@ -335,7 +334,7 @@ const App: React.FC = () => {
       refresh();
   };
 
-  const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null) => {
+  const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null): Promise<boolean> => {
       const todayStr = getSmartLocalISO();
       console.log(`[ADMIN UPDATE] Locking result for ${todayStr} - ${draw}: ${number}`);
 
@@ -362,10 +361,11 @@ const App: React.FC = () => {
 
       if (error) {
           console.error("Error updating result:", error);
-          alert("Error guardando resultado en la nube. El dato puede revertirse.");
-          // In a production app, we would rollback the optimistic update here
+          alert(`Error guardando resultado: ${error.message}`);
+          return false;
       } else {
           refresh(); 
+          return true;
       }
   };
 

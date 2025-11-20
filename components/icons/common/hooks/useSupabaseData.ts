@@ -18,8 +18,10 @@ export const useSupabaseData = (sessionUserId: string | null) => {
   const [loading, setLoading] = useState(true);
 
   // OPTIMISTIC UPDATE HANDLER
+  // Allows the UI to update immediately before the server responds
   const optimisticUpdateResult = useCallback((newResult: DailyResult) => {
       setDbDailyResults(prev => {
+          // Remove previous entry for the same draw/date to avoid duplicates/conflicts
           const others = prev.filter(r => !(r.date === newResult.date && r.draw === newResult.draw));
           return [...others, newResult];
       });
@@ -27,27 +29,27 @@ export const useSupabaseData = (sessionUserId: string | null) => {
 
   const fetchData = useCallback(async () => {
     try {
-      // 1. Fetch Profiles
+      // 1. Fetch Profiles (Users)
       const { data: profiles, error: usersError } = await supabase
         .from('profiles')
         .select('*');
 
       if (usersError) throw usersError;
 
-      // 2. Fetch Tickets (Include status)
+      // 2. Fetch Tickets
       const { data: tickets, error: ticketsError } = await supabase
         .from('tickets')
         .select('*');
 
       if (ticketsError) throw ticketsError;
 
-      // 3. Map Data
+      // 3. Map Data to App Types
       const mappedUsers: User[] = (profiles || []).map(p => ({
         id: p.id,
         cedula: p.cedula || '',
         name: p.name || 'Usuario',
         email: p.email || '',
-        password: '', 
+        password: '', // Not needed in frontend with Supabase Auth
         phone: p.phone || '',
         balance: Number(p.balance) || 0,
         role: p.role as 'admin' | 'client',
@@ -57,8 +59,7 @@ export const useSupabaseData = (sessionUserId: string | null) => {
             amount: Number(t.amount),
             reventadosAmount: Number(t.reventados_amount),
             draw: t.draw_type as any,
-            purchaseDate: new Date(t.purchase_date),
-            status: t.status || 'pending' // Map status correctly from DB
+            purchaseDate: new Date(t.purchase_date)
         })) || []
       }));
 
@@ -84,16 +85,19 @@ export const useSupabaseData = (sessionUserId: string | null) => {
 
       setTransactions(mappedTxs);
 
-      // 5. Fetch Daily Results
+      // 5. Fetch Daily Results (The "Truth" Source)
+      // CRITICAL FIX: Use Local Time logic.
+      // We fetch strictly for the current LOCAL day.
       const todayLocalStr = getSmartLocalISO();
       
       const { data: results, error: resError } = await supabase
           .from('daily_results')
           .select('*')
-          .gte('date', todayLocalStr); 
+          .gte('date', todayLocalStr); // Fetch logic aligned with write logic
       
       if (!resError && results) {
           const mappedResults: DailyResult[] = results.map(r => ({
+              // CRITICAL FIX: Force date string format (YYYY-MM-DD) to avoid Timestamp mismatches
               date: (r.date || '').substring(0, 10), 
               draw: r.draw_type as any,
               number: r.number,
@@ -114,6 +118,7 @@ export const useSupabaseData = (sessionUserId: string | null) => {
   useEffect(() => {
     fetchData();
 
+    // Real-time subscription
     const channel = supabase.channel('db-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => fetchData())

@@ -1,7 +1,7 @@
 
 export type DrawType = 'mediodia' | 'tarde' | 'noche';
 export type BallColor = 'blanca' | 'roja';
-export type TransactionType = 'purchase' | 'withdraw' | 'deposit';
+export type TransactionType = 'purchase' | 'withdraw' | 'deposit' | 'winnings';
 
 export interface Ticket {
   id: string;
@@ -10,6 +10,7 @@ export interface Ticket {
   reventadosAmount?: number; // Optional Reventados amount
   purchaseDate: Date;
   draw: DrawType;
+  status: 'pending' | 'paid' | 'lost'; // Nuevo campo vital para controlar pagos
 }
 
 export interface User {

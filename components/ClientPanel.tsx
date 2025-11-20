@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor } from '../types';
+import { supabase } from '../lib/supabase';
 import Card from './common/Card';
 import Input from './common/Input';
 import Button from './common/Button';
@@ -12,32 +13,29 @@ import {
   TrashIcon, 
   TicketIcon, 
   ShoppingCartIcon, 
-  CheckCircleIcon, 
   SunIcon, 
   MoonIcon, 
   SunsetIcon,
-  CalendarIcon,
-  RefreshIcon,
   FireIcon,
   LinkIcon,
-  GlobeAltIcon,
-  UserCircleIcon,
-  ArrowTrendingUpIcon,
   CpuIcon,
   BoltIcon,
-  ClockIcon
+  ClockIcon,
+  RefreshIcon,
+  ArrowTrendingUpIcon,
+  CheckCircleIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
   user: User;
-  onPurchase: (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => void;
+  onPurchase: (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate' | 'status'>[]) => void;
   dailyResults: DailyResult[];
   historyResults: HistoryResult[];
   nextDrawTime: string;
   isSyncing: boolean;
 }
 
-type NewTicket = Omit<Ticket, 'id' | 'purchaseDate'>;
+type NewTicket = Omit<Ticket, 'id' | 'purchaseDate' | 'status'>;
 
 const ClientPanel: React.FC<ClientPanelProps> = ({ 
     user, 
@@ -75,27 +73,22 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
   };
 
   // --- INTELLIGENCE ENGINE ---
-  
   const stats = useMemo(() => {
       const numCounts: Record<string, number> = {};
       let totalDraws = 0;
       let redBalls = 0;
 
-      // Analyze History
       historyResults.forEach(day => {
-          // Mediodia
           if(day.results.mediodia.number) {
               numCounts[day.results.mediodia.number] = (numCounts[day.results.mediodia.number] || 0) + 1;
               totalDraws++;
               if(day.results.mediodia.ball === 'roja') redBalls++;
           }
-          // Tarde
           if(day.results.tarde.number) {
               numCounts[day.results.tarde.number] = (numCounts[day.results.tarde.number] || 0) + 1;
               totalDraws++;
               if(day.results.tarde.ball === 'roja') redBalls++;
           }
-          // Noche
           if(day.results.noche.number) {
               numCounts[day.results.noche.number] = (numCounts[day.results.noche.number] || 0) + 1;
               totalDraws++;
@@ -103,19 +96,17 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           }
       });
 
-      // Get Top 3 "Hot" Numbers
       const hotNumbers = Object.entries(numCounts)
           .sort(([,a], [,b]) => b - a)
           .slice(0, 3)
           .map(([num, count]) => ({ num, count }));
 
-      // Calculate Red Ball Percentage
       const redBallPercentage = totalDraws > 0 ? Math.round((redBalls / totalDraws) * 100) : 0;
 
       return { hotNumbers, redBallPercentage, totalDraws };
   }, [historyResults]);
 
-  // --- RECENT TICKETS (LAST 7 DAYS & SCROLLABLE) ---
+  // --- RECENT TICKETS (LAST 7 DAYS) ---
   const recentTickets = useMemo(() => {
       const now = new Date();
       const cutoffDate = new Date();
@@ -127,18 +118,24 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
   }, [user.tickets]);
 
-  // --- WINNER DETECTION SYSTEM ---
+  // --- WINNER PAYOUT ENGINE ---
   useEffect(() => {
-      const checkWinners = async () => {
-          const todayStr = new Date().toLocaleDateString('es-CR');
+      const processPayouts = async () => {
           const normalize = (d: Date) => d.toLocaleDateString('es-CR');
-          const todayTickets = user.tickets.filter(t => normalize(new Date(t.purchaseDate)) === normalize(new Date()));
+          const todayStr = normalize(new Date());
+          
+          // Filter for UNPAID tickets from TODAY (or recently updated results)
+          const pendingTickets = user.tickets.filter(t => 
+             t.status === 'pending' && 
+             normalize(new Date(t.purchaseDate)) === todayStr
+          );
 
-          if (todayTickets.length === 0 || dailyResults.length === 0) return;
+          if (pendingTickets.length === 0 || dailyResults.length === 0) return;
 
           let bestWin: {type: 'regular'|'reventados', amount: number, number: string, draw: string} | null = null;
 
-          todayTickets.forEach(ticket => {
+          // Iterate tickets and pay out using Supabase RPC
+          for (const ticket of pendingTickets) {
               const result = dailyResults.find(r => r.draw === ticket.draw && r.number !== null);
 
               if (result && result.number === ticket.number) {
@@ -148,43 +145,58 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                   winAmount += regularPrize;
 
                   if (ticket.reventadosAmount && ticket.reventadosAmount > 0) {
-                      if (result.ballColor === 'roja' && result.reventadosNumber === ticket.number) {
-                          type = 'reventados';
-                          winAmount += (ticket.reventadosAmount * 200); 
+                      if (result.ballColor === 'roja') {
+                          // Check if there is a specific reventados number, otherwise assume main number
+                          const targetRevNumber = result.reventadosNumber || result.number;
+                          if (targetRevNumber === ticket.number) {
+                              type = 'reventados';
+                              winAmount += (ticket.reventadosAmount * 200); 
+                          }
                       }
                   }
 
-                  if (!bestWin || winAmount > bestWin.amount) {
-                      bestWin = { type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] };
+                  // --- CRITICAL: DB PAYOUT TRANSACTION ---
+                  try {
+                      console.log(`[PAYOUT] Procesando pago seguro para ticket ${ticket.id}...`);
+                      
+                      // Call Supabase RPC function 'claim_winnings' defined in SQL
+                      const { data, error } = await supabase.rpc('claim_winnings', {
+                          p_ticket_id: ticket.id,
+                          p_user_id: user.id,
+                          p_amount: winAmount
+                      });
+
+                      if (!error) {
+                         console.log(`[PAYOUT] Pago exitoso: ₡${winAmount}`);
+                         
+                         // Update local best win for UI Notification
+                         if (!bestWin || winAmount > bestWin.amount) {
+                             bestWin = { type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] };
+                         }
+
+                         // Send Email Notification
+                         sendWinnerNotification(
+                             user.email, user.name, winAmount, ticket.number, DRAW_LABELS[ticket.draw], type === 'reventados'
+                         );
+                      } else {
+                          console.error("Error DB procesando pago:", error.message || error);
+                      }
+
+                  } catch (e) {
+                      console.error("Excepción en pago:", e);
                   }
               }
-          });
+          }
 
           if (bestWin) {
-              const seenKey = `seen_win_${todayStr}_${bestWin.amount}`;
-              if (!sessionStorage.getItem(seenKey)) {
-                  setWinNotification(bestWin);
-                  sessionStorage.setItem(seenKey, 'true');
-                  
-                  // --- TRIGGER EMAIL SERVICE ---
-                  // We don't await this to avoid blocking UI, it runs in background
-                  sendWinnerNotification(
-                      user.email, 
-                      user.name, 
-                      bestWin.amount, 
-                      bestWin.number, 
-                      bestWin.draw, 
-                      bestWin.type === 'reventados'
-                  ).then(() => {
-                      console.log("Email delivery confirmed via Agent.");
-                  });
-              }
+               setWinNotification(bestWin);
           }
       };
 
-      const timer = setTimeout(checkWinners, 1000); 
+      // Run logic check with a small delay to allow React state to settle
+      const timer = setTimeout(processPayouts, 1500); 
       return () => clearTimeout(timer);
-  }, [dailyResults, user.tickets, user.email, user.name]);
+  }, [dailyResults, user.tickets, user.id, user.email, user.name]);
 
 
   const handleAddTicket = (e: React.FormEvent) => {
@@ -210,7 +222,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
     setIsAddingToCart(true);
 
-    // Trigger Animation delay for effect
     setTimeout(() => {
         const formattedNumber = num.toString().padStart(2, '0');
         setCart([...cart, { 
@@ -220,7 +231,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           reventadosAmount: playReventados ? revAmnt : undefined
         }]);
         
-        // Reset form
         setNumber('');
         setAmount('');
         setReventadosAmount('');
@@ -239,17 +249,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           return;
       }
 
-      // Detect if Reventados is present in ANY ticket in the cart
       const hasReventados = cart.some(item => item.reventadosAmount && item.reventadosAmount > 0);
 
-      // Trigger Animation
       setActionModal({
           isOpen: true,
           amount: totalCost,
           isReventados: hasReventados
       });
 
-      // Process
       onPurchase(user.id, cart);
       setCart([]);
   }
@@ -272,7 +279,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
   return (
     <div className="space-y-8 relative">
-      {/* WINNER MODAL INTEGRATION */}
       {winNotification && (
           <WinnerModal 
             winType={winNotification.type} 
@@ -283,7 +289,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           />
       )}
 
-      {/* ACTION CONFIRMATION MODAL */}
       <ActionModal 
           isOpen={actionModal.isOpen}
           type="purchase"
@@ -293,7 +298,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           onClose={() => setActionModal({...actionModal, isOpen: false})}
       />
 
-      {/* HERO: Live Results with Holographic Effect */}
+      {/* HERO: Live Results */}
       <section className="relative overflow-hidden rounded-3xl border border-brand-border bg-brand-secondary/50 backdrop-blur-xl shadow-2xl animate-fade-in-up group hover:border-brand-accent/30 transition-colors duration-500">
         <div className="absolute inset-0 bg-hero-glow opacity-20 pointer-events-none"></div>
         <div className="absolute -right-20 -top-20 w-64 h-64 bg-brand-accent/10 rounded-full blur-[80px] animate-pulse-slow pointer-events-none"></div>
@@ -352,13 +357,11 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         <div className="flex justify-center items-center gap-4 relative z-10 py-2">
                             {res.number ? (
                                 <>
-                                    {/* Main Number Ball */}
                                     <div className="relative w-20 h-20 flex items-center justify-center rounded-full bg-gradient-to-b from-white to-gray-300 shadow-[0_5px_15px_rgba(255,255,255,0.2)] text-brand-primary text-4xl font-black transform group-hover/card:scale-110 transition-transform duration-500">
                                         {res.number}
                                         <div className="absolute top-2 left-4 w-6 h-3 bg-white rounded-full opacity-50 filter blur-[1px]"></div>
                                     </div>
                                     
-                                    {/* Reventados Indicator */}
                                     <div className="flex flex-col items-center gap-1 animate-fade-in-up" style={{animationDelay: '200ms'}}>
                                         {res.ballColor === 'roja' && res.reventadosNumber ? (
                                              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-gradient-to-b from-red-500 to-red-700 shadow-[0_0_15px_rgba(239,68,68,0.6)] text-white text-lg font-bold border border-red-400 animate-pulse-slow">
@@ -387,10 +390,8 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* LEFT COLUMN: Betting Form & History */}
         <div className="lg:col-span-8 space-y-8">
            
-           {/* TICKET CREATOR */}
            <Card className="relative overflow-hidden border-brand-accent/30 shadow-2xl animate-fade-in-up">
                 <div className="flex items-center justify-between mb-8 border-b border-brand-border pb-4">
                     <div className="flex items-center gap-3">
@@ -409,7 +410,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 </div>
 
                 <form onSubmit={handleAddTicket} className="space-y-8">
-                    {/* Draw Selection */}
                     <div>
                         <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider">1. Elige el Sorteo</label>
                         <div className="grid grid-cols-3 gap-3">
@@ -435,7 +435,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* Inputs */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="group">
                             <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider group-focus-within:text-brand-accent transition-colors">2. Tu Número</label>
@@ -468,7 +467,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* Reventados Toggle */}
                     <div className={`bg-gradient-to-r from-red-900/10 to-transparent border rounded-xl p-4 transition-all duration-300 ${playReventados ? 'border-red-500/50 shadow-[0_0_20px_rgba(220,38,38,0.1)]' : 'border-red-500/20'}`}>
                         <div className="flex items-center justify-between mb-4">
                              <div className="flex items-center gap-3">
@@ -531,7 +529,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 </form>
            </Card>
 
-           {/* INTELLIGENCE HUB: HISTORY & STATISTICS */}
+           {/* INTELLIGENCE HUB */}
            <div className="space-y-6 animate-fade-in-up" style={{animationDelay: '200ms'}}>
                <div className="flex items-center justify-between">
                    <h3 className="text-xl font-black text-white flex items-center gap-2 tracking-tight">
@@ -542,11 +540,8 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                    </span>
                </div>
 
-               {/* ROW 1: PREDICTIVE STATS */}
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   {/* Hot Numbers Card */}
                    <Card className="bg-gradient-to-br from-brand-secondary to-brand-primary relative overflow-hidden border-brand-border group hover:border-yellow-500/30 transition-colors duration-500">
-                        {/* Background Grid */}
                         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/grid-me.png')] opacity-10"></div>
                         
                         <div className="relative z-10">
@@ -578,7 +573,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                    </Card>
 
-                   {/* Reventados Probability */}
                    <Card className="bg-brand-secondary relative overflow-hidden flex items-center justify-between group hover:border-red-500/30 transition-colors">
                        <div>
                            <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-2">Probabilidad Reventados</h4>
@@ -587,20 +581,18 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                Porcentaje histórico de aparición de la <span className="text-red-400 font-bold">Bolita Roja</span>.
                            </p>
                        </div>
-                       {/* Pure CSS Donut Chart with Glow */}
                        <div className="relative w-24 h-24 rounded-full flex items-center justify-center transition-transform group-hover:scale-105 duration-500" style={{
                            background: `conic-gradient(#EF4444 ${stats.redBallPercentage}%, #1E2332 0)`
                        }}>
                            <div className="absolute inset-2 bg-brand-secondary rounded-full flex items-center justify-center">
                                <FireIcon className="h-8 w-8 text-red-500 animate-pulse-slow"/>
                            </div>
-                           {/* Glow Ring */}
                            <div className="absolute inset-0 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.3)] opacity-0 group-hover:opacity-100 transition-opacity"></div>
                        </div>
                    </Card>
                </div>
 
-               {/* ROW 2: VERTICAL TIMELINE REDESIGNED */}
+               {/* TIMELINE */}
                <Card>
                    <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-6 flex items-center gap-2">
                        <ArrowTrendingUpIcon className="h-4 w-4" /> Timeline de Resultados
@@ -609,11 +601,9 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                    <div className="relative border-l-2 border-brand-border ml-3 space-y-8">
                        {historyResults.length > 0 ? historyResults.map((day, idx) => (
                            <div key={idx} className="relative pl-8 animate-fade-in-up" style={{animationDelay: `${idx * 100}ms`}}>
-                               {/* Timeline Dot */}
                                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-primary border-2 border-brand-accent box-content z-10"></div>
                                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-accent animate-ping opacity-20"></div>
                                
-                               {/* Content */}
                                <div className="mb-3">
                                    <span className="text-lg font-bold text-white capitalize">{new Date(day.date).toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
                                </div>
@@ -625,7 +615,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
                                        return (
                                            <div key={drawType} className="rounded-xl border border-brand-border overflow-hidden flex flex-col sm:flex-row h-20 group hover:border-brand-accent/50 transition-colors">
-                                               {/* Draw Label */}
                                                <div className={`bg-brand-primary/80 w-20 flex flex-col items-center justify-center border-r border-brand-border group-hover:border-brand-accent/30`}>
                                                    {drawType === 'mediodia' && <SunIcon className="h-5 w-5 text-orange-400 mb-1 group-hover:scale-110 transition-transform"/>}
                                                    {drawType === 'tarde' && <SunsetIcon className="h-5 w-5 text-purple-400 mb-1 group-hover:scale-110 transition-transform"/>}
@@ -633,17 +622,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                                    <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[drawType].substring(0, 3)}</span>
                                                </div>
 
-                                               {/* Main Number Section - SPLIT LEFT */}
                                                <div className="flex-1 bg-brand-secondary flex flex-col items-center justify-center border-r border-brand-border relative group-hover:bg-brand-tertiary transition-colors">
                                                    <span className="text-[8px] uppercase font-bold text-blue-400 absolute top-1 left-2 tracking-wider">Nuevos Tiempos</span>
                                                    <span className="font-black text-4xl text-white font-mono tracking-tighter group-hover:text-brand-accent transition-colors">{result.number || '--'}</span>
                                                </div>
 
-                                               {/* Reventados Section - SPLIT RIGHT */}
                                                <div className="flex-1 bg-gradient-to-br from-brand-secondary to-red-900/5 flex flex-col items-center justify-center relative">
                                                    <span className="text-[8px] uppercase font-bold text-red-400 absolute top-1 left-2 tracking-wider">Reventados</span>
                                                     <div className="flex items-center gap-2">
-                                                        {/* Ball Indicator */}
                                                         {result.ball === 'roja' ? (
                                                             <>
                                                                 <div className="w-4 h-4 rounded-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] animate-pulse"></div>
@@ -672,7 +658,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
            </div>
         </div>
 
-        {/* RIGHT COLUMN: Cart */}
         <div className="lg:col-span-4 animate-fade-in-up" style={{animationDelay: '300ms'}}>
             <div className="sticky top-24 space-y-6">
                 <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)] hover:shadow-[0_0_50px_rgba(79,70,229,0.2)] transition-shadow duration-500" noPadding>
@@ -741,7 +726,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                     </div>
                 </Card>
 
-                {/* Recent User Tickets Widget - SCROLLABLE 7 DAYS MAX */}
                 <Card className="bg-brand-secondary/30 hover:bg-brand-secondary/50 transition-colors duration-500">
                     <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2">
                         <TicketIcon className="h-4 w-4" /> Jugadas Recientes (7 Días)
@@ -749,7 +733,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                     {recentTickets.length > 0 ? (
                         <div className="max-h-[500px] overflow-y-auto custom-scrollbar pr-2 space-y-3">
                             {recentTickets.map((t, idx) => (
-                                <div key={t.id} className="flex flex-col p-3 rounded-xl bg-brand-primary/50 border border-brand-border relative group hover:border-brand-accent/30 transition-all shadow-sm hover:shadow-lg hover:-translate-x-1 animate-fade-in-up" style={{animationDelay: `${idx * 50}ms`}}>
+                                <div key={t.id} className={`flex flex-col p-3 rounded-xl border relative group transition-all shadow-sm hover:shadow-lg hover:-translate-x-1 animate-fade-in-up ${t.status === 'paid' ? 'bg-brand-success/10 border-brand-success/50' : 'bg-brand-primary/50 border-brand-border hover:border-brand-accent/30'}`} style={{animationDelay: `${idx * 50}ms`}}>
                                     <div className="flex justify-between items-center mb-2">
                                         <div className="flex items-center gap-2">
                                             <span className={`text-2xl font-black ${t.reventadosAmount ? 'text-red-400' : 'text-white'}`}>{t.number}</span>
@@ -767,7 +751,15 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                             )}
                                         </div>
                                     </div>
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-10 transition-opacity">
+                                    
+                                    {/* Status Indicator */}
+                                    {t.status === 'paid' && (
+                                        <div className="absolute top-2 right-2 bg-brand-success text-[9px] text-white font-bold px-2 py-0.5 rounded-full shadow-md flex items-center gap-1">
+                                            <CheckCircleIcon className="h-3 w-3"/> PAGADO
+                                        </div>
+                                    )}
+
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-10 transition-opacity pointer-events-none">
                                         {getDrawIcon(t.draw, "h-10 w-10")}
                                     </div>
                                 </div>

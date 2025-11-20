@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { User, DailyResult, DrawType, BallColor, Transaction, HistoryResult, Ticket } from '../types';
 import Card from './common/Card';
@@ -45,7 +44,7 @@ interface AdminPanelProps {
   transactions: Transaction[];
   onRecharge: (userId: string, amount: number) => void;
   onWithdraw: (userId: string, amount: number) => void;
-  onUpdateResult: (draw: DrawType, number: string | null, ballColor: BallColor | null, reventadosNumber: string | null) => void;
+  onUpdateResult: (draw: DrawType, number: string | null, ballColor: BallColor | null, reventadosNumber: string | null) => Promise<boolean>;
   onUpdateHistory: (date: string, data: HistoryResult['results']) => void; 
   onRegisterClient: (userData: Partial<User>) => void;
   onForceResetPassword: (userId: string) => void;
@@ -57,7 +56,7 @@ type TabView = 'finance' | 'draws' | 'reports';
 interface DrawConfirmationState {
     isActive: boolean;
     type: 'normal' | 'reventado' | null;
-    step: 'input' | 'processing' | 'confirming' | 'complete';
+    step: 'input' | 'processing' | 'confirming' | 'complete' | 'error';
     drawType: DrawType | null;
     logs: string[];
 }
@@ -346,7 +345,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       setDrawRevNumber('');
   };
 
-  const handleConfirmDraw = () => {
+  const handleConfirmDraw = async () => {
       if (!drawNumber) return;
       const isReventado = drawBall === 'roja';
       const type = isReventado ? 'reventado' : 'normal';
@@ -358,26 +357,40 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           logs: ['INITIATING_MANUAL_OVERRIDE...', 'LOCKING_INPUT_CHANNEL...', 'ENCRYPTING_PACKET...']
       }));
 
-      setTimeout(() => {
+      // Artificial delay for animation
+      await new Promise(r => setTimeout(r, 1200));
+
+      setConfirmAnim(prev => ({ 
+          ...prev, 
+          step: 'confirming',
+          logs: [...prev.logs, 'MANUAL_ENTRY_VERIFIED', 'BROADCASTING_TO_LEDGER...']
+      }));
+
+      // Artificial delay for animation
+      await new Promise(r => setTimeout(r, 1000));
+
+      const success = await onUpdateResult(
+          editingDraw!, 
+          drawNumber, 
+          drawBall, 
+          isReventado ? (drawRevNumber || drawNumber) : null
+      );
+
+      if (success) {
+          setConfirmAnim(prev => ({ ...prev, step: 'complete' }));
+          setTimeout(() => {
+              handleCloseDrawModal();
+          }, 2000);
+      } else {
           setConfirmAnim(prev => ({ 
               ...prev, 
-              step: 'confirming',
-              logs: [...prev.logs, 'MANUAL_ENTRY_VERIFIED', 'BROADCASTING_TO_LEDGER...']
+              step: 'error',
+              logs: [...prev.logs, 'ERROR: TRANSACTION REJECTED', 'CHECK DB CONSTRAINTS']
           }));
           setTimeout(() => {
-              onUpdateResult(
-                  editingDraw!, 
-                  drawNumber, 
-                  drawBall, 
-                  isReventado ? (drawRevNumber || drawNumber) : null
-              );
-              setConfirmAnim(prev => ({ ...prev, step: 'complete' }));
-              
-              setTimeout(() => {
-                  handleCloseDrawModal();
-              }, 2000);
-          }, 1500);
-      }, 1200);
+              handleCloseDrawModal();
+          }, 3000);
+      }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -537,6 +550,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="mt-8 h-1 w-full bg-brand-tertiary rounded-full overflow-hidden">
                               <div className={`h-full animate-progress-indeterminate ${confirmAnim.type === 'reventado' ? 'bg-red-600' : 'bg-brand-accent'}`}></div>
                           </div>
+                          {/* Render logs here too if needed for debugging */}
+                          <div className="font-mono text-xs text-brand-text-secondary space-y-1 mt-4 h-12 overflow-hidden opacity-50">
+                              {confirmAnim.logs.slice(-2).map((log, i) => (
+                                  <div key={i} className="animate-fade-in-up text-left pl-10"><span className="text-brand-accent">{'>'}</span> {log}</div>
+                              ))}
+                          </div>
+                      </div>
+                  )}
+
+                  {confirmAnim.step === 'error' && (
+                      <div className="animate-shake-hard">
+                          <ExclamationTriangleIcon className="h-32 w-32 mx-auto mb-6 text-red-500 drop-shadow-[0_0_25px_rgba(220,38,38,0.5)]"/>
+                          <h2 className="text-3xl font-black text-red-500 uppercase tracking-tight">
+                              ERROR DE ESCRITURA
+                          </h2>
+                          <p className="text-xs font-mono text-brand-text-secondary mt-2">REVISE PERMISOS Y DUPLICADOS</p>
                       </div>
                   )}
 
@@ -794,10 +823,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
       )}
       
-      {/* FINANCE AND REPORT TABS */}
+      {/* FINANCE AND REPORT TABS (Unchanged layout logic) */}
       {activeTab === 'reports' && (
           <div className="max-w-4xl mx-auto space-y-8">
-              {/* Report Content Remains Unchanged */}
               <Card className="relative overflow-hidden border-brand-accent/30">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer"></div>
                   <div className="flex items-center gap-4 mb-8">
@@ -860,7 +888,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {activeTab === 'finance' && (
            <div className="space-y-8 animate-fade-in-up">
-              {/* Finance Content Remains Unchanged */}
               <div className="flex justify-center items-center">
                   <div className="bg-brand-secondary border border-brand-border rounded-full p-1 flex items-center gap-4 shadow-2xl">
                       <button onClick={() => handleWeekNav('prev')} className="p-2 rounded-full hover:bg-white/10 text-brand-text-secondary hover:text-white transition-colors"><ChevronLeftIcon className="h-5 w-5"/></button>

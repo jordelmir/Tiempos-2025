@@ -16,8 +16,8 @@ export const mockUsers: User[] = [
     balance: 15000,
     role: 'admin', // Elena is the Admin
     tickets: [
-      { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date(), draw: 'mediodia' },
-      { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date(), draw: 'noche' },
+      { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date(), draw: 'mediodia', status: 'pending' },
+      { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date(), draw: 'noche', status: 'pending' },
     ],
   },
   {
@@ -31,7 +31,7 @@ export const mockUsers: User[] = [
     role: 'client', 
     adminId: 'usr_1', // Belongs to Elena
     tickets: [
-      { id: 'tkt_3', number: '05', amount: 2000, purchaseDate: new Date(), draw: 'tarde' },
+      { id: 'tkt_3', number: '05', amount: 2000, purchaseDate: new Date(), draw: 'tarde', status: 'pending' },
     ],
   },
   {
