@@ -1,55 +1,65 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Transaction, DailyResult } from '../types';
-
-// Utility to get local date ISO string matching the App's logic
-const getSmartLocalISO = () => {
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localDate = new Date(now.getTime() - offset);
-    return localDate.toISOString().split('T')[0];
-};
 
 export const useSupabaseData = (sessionUserId: string | null) => {
   const [users, setUsers] = useState<User[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dbDailyResults, setDbDailyResults] = useState<DailyResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Ref to track critical errors and stop polling/fetching
+  const criticalErrorRef = useRef(false);
 
-  // OPTIMISTIC UPDATE HANDLER
-  // Allows the UI to update immediately before the server responds
+  // Optimistic update helper
   const optimisticUpdateResult = useCallback((newResult: DailyResult) => {
       setDbDailyResults(prev => {
-          // Remove previous entry for the same draw/date to avoid duplicates/conflicts
           const others = prev.filter(r => !(r.date === newResult.date && r.draw === newResult.draw));
           return [...others, newResult];
       });
   }, []);
 
+  // Main Fetch Function
   const fetchData = useCallback(async () => {
+    // Guard: Stop fetching if we hit a critical DB configuration error
+    if (criticalErrorRef.current) return;
+
     try {
-      // 1. Fetch Profiles (Users)
-      const { data: profiles, error: usersError } = await supabase
-        .from('profiles')
-        .select('*');
+      setError(null); 
+      
+      // 1. Profiles
+      const { data: profiles, error: usersError } = await supabase.from('profiles').select('*');
+      if (usersError) throw new Error(`Supabase Profiles Error: ${usersError.message}`);
 
-      if (usersError) throw usersError;
+      // 2. Tickets
+      const { data: tickets, error: ticketsError } = await supabase.from('tickets').select('*');
+      if (ticketsError) throw new Error(`Supabase Tickets Error: ${ticketsError.message}`);
 
-      // 2. Fetch Tickets
-      const { data: tickets, error: ticketsError } = await supabase
-        .from('tickets')
-        .select('*');
+      // 3. Transactions
+      const { data: txs, error: txError } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (txError) throw new Error(`Supabase Transactions Error: ${txError.message}`);
 
-      if (ticketsError) throw ticketsError;
+      // 4. Daily Results
+      const { data: results, error: resError } = await supabase
+          .from('daily_results')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(100);
+      if (resError) throw new Error(`Supabase Results Error: ${resError.message}`);
 
-      // 3. Map Data to App Types
+      // --- DATA MAPPING ---
+
       const mappedUsers: User[] = (profiles || []).map(p => ({
         id: p.id,
         cedula: p.cedula || '',
         name: p.name || 'Usuario',
         email: p.email || '',
-        password: '', // Not needed in frontend with Supabase Auth
+        password: '', 
         phone: p.phone || '',
         balance: Number(p.balance) || 0,
         role: p.role as 'admin' | 'client',
@@ -59,19 +69,10 @@ export const useSupabaseData = (sessionUserId: string | null) => {
             amount: Number(t.amount),
             reventadosAmount: Number(t.reventados_amount),
             draw: t.draw_type as any,
+            status: t.status,
             purchaseDate: new Date(t.purchase_date)
         })) || []
       }));
-
-      setUsers(mappedUsers);
-
-      // 4. Fetch Transactions
-      const { data: txs, error: txError } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (txError) throw txError;
 
       const mappedTxs: Transaction[] = (txs || []).map(t => ({
           id: t.id,
@@ -83,54 +84,59 @@ export const useSupabaseData = (sessionUserId: string | null) => {
           details: t.details
       }));
 
+      const mappedResults: DailyResult[] = (results || []).map(r => ({
+          id: r.id,
+          date: r.date,
+          draw: r.draw_type as any,
+          number: r.number,
+          reventadosNumber: r.reventados_number,
+          ballColor: r.ball_color as any
+      }));
+
+      setUsers(mappedUsers);
       setTransactions(mappedTxs);
-
-      // 5. Fetch Daily Results (The "Truth" Source)
-      // CRITICAL FIX: Use Local Time logic.
-      // We fetch strictly for the current LOCAL day.
-      const todayLocalStr = getSmartLocalISO();
+      setDbDailyResults(mappedResults);
       
-      const { data: results, error: resError } = await supabase
-          .from('daily_results')
-          .select('*')
-          .gte('date', todayLocalStr); // Fetch logic aligned with write logic
+    } catch (error: any) {
+      const msg = error.message || error.toString();
+      console.error("DATA SYNC ERROR:", msg);
       
-      if (!resError && results) {
-          const mappedResults: DailyResult[] = results.map(r => ({
-              id: r.id, // UUID from DB
-              // CRITICAL FIX: Force date string format (YYYY-MM-DD) to avoid Timestamp mismatches
-              date: (r.date || '').substring(0, 10), 
-              draw: r.draw_type as any,
-              number: r.number,
-              reventadosNumber: r.reventados_number,
-              ballColor: r.ball_color as any
-          }));
-          setDbDailyResults(mappedResults);
+      // Check specifically for the recursion error to halt operations
+      const lowerMsg = msg.toLowerCase();
+      if (lowerMsg.includes("infinite recursion") || lowerMsg.includes("recursion") || lowerMsg.includes("policy")) {
+          console.error("🚨 CRITICAL DATABASE ERROR: Recursive RLS Policy detected.");
+          criticalErrorRef.current = true;
       }
-
-      setLoading(false);
-
-    } catch (error) {
-      console.error("Error fetching Supabase data:", error);
+      
+      setError(msg);
+    } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sessionUserId]); 
 
+  // Setup Fetch & Realtime
   useEffect(() => {
     fetchData();
 
-    // Real-time subscription
-    const channel = supabase.channel('db-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => fetchData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => fetchData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_results' }, () => fetchData())
+    const channel = supabase.channel('app-db-sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+            if(!criticalErrorRef.current) { console.log('🔔 DB Update: Profiles'); fetchData(); }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => {
+            if(!criticalErrorRef.current) { console.log('🔔 DB Update: Tickets'); fetchData(); }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+            if(!criticalErrorRef.current) { console.log('🔔 DB Update: Transactions'); fetchData(); }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_results' }, () => {
+            if(!criticalErrorRef.current) { console.log('🔔 DB Update: Results'); fetchData(); }
+        })
         .subscribe();
 
     return () => {
         supabase.removeChannel(channel);
     };
-  }, [fetchData]);
+  }, [fetchData]); 
 
-  return { users, transactions, dbDailyResults, loading, refresh: fetchData, optimisticUpdateResult };
+  return { users, transactions, dbDailyResults, loading, error, refresh: fetchData, optimisticUpdateResult };
 };

@@ -160,6 +160,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
             // The App component will detect the session and unmount this screen.
             // We keep the "Access Granted" animation until that happens.
             setAuthStatus('success');
+            // Force reload window after a short delay to ensure profile trigger catches up if needed
+            // though App.tsx should handle it
         } else if (result.data?.user && !result.data?.session) {
             // SUCCESS BUT NO SESSION: Email Verification Required (Supabase default)
             // Do NOT show "Access Granted" spinner because it will never unmount.

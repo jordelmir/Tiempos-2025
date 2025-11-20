@@ -10,7 +10,7 @@ import Footer from './components/Footer';
 import SecurityModal from './components/SecurityModal';
 import { supabase } from './lib/supabase';
 import { useSupabaseData } from './hooks/useSupabaseData';
-import { CheckCircleIcon, CpuIcon, ShieldCheckIcon } from './components/icons/Icons';
+import { CheckCircleIcon, CpuIcon, ExclamationTriangleIcon, ClipboardCheckIcon } from './components/icons/Icons';
 
 type View = 'admin' | 'client';
 
@@ -85,6 +85,204 @@ const LoginSequence = ({ onComplete }: { onComplete: () => void }) => {
     );
 };
 
+// --- SQL FIX COMPONENT ---
+const DatabaseFixModal = () => {
+    const sqlCode = `-- SCRIPT MAESTRO v7.0 - SOLUCIÓN DEFINITIVA RECURSIVIDAD
+-- Ejecuta este script en el Editor SQL de Supabase para reparar el error "infinite recursion".
+
+-- 1. LIMPIEZA COMPLETA DE POLÍTICAS (Para evitar conflictos)
+DROP POLICY IF EXISTS "profiles_select" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_delete" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_view_self" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_policy" ON public.profiles;
+
+DROP POLICY IF EXISTS "tickets_select" ON public.tickets;
+DROP POLICY IF EXISTS "tickets_insert" ON public.tickets;
+
+DROP POLICY IF EXISTS "trans_select" ON public.transactions;
+DROP POLICY IF EXISTS "trans_insert" ON public.transactions;
+
+-- 2. REPARACIÓN DE FUNCIÓN ADMIN (CRÍTICO: SECURITY DEFINER)
+-- Esto soluciona el bucle infinito permitiendo que la función lea 'profiles'
+-- con privilegios de sistema, saltándose las políticas RLS.
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER -- <<< CLAVE PARA EVITAR RECURSIVIDAD
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid()
+    AND role = 'admin'
+  );
+END;
+$$;
+
+-- 3. APLICAR POLÍTICAS SEGURAS
+
+-- PROFILES
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "profiles_select" ON public.profiles
+FOR SELECT USING (
+  auth.uid() = id OR public.is_admin()
+);
+
+CREATE POLICY "profiles_update" ON public.profiles
+FOR UPDATE USING (
+  public.is_admin()
+);
+
+CREATE POLICY "profiles_insert" ON public.profiles
+FOR INSERT WITH CHECK (
+  auth.uid() = id
+);
+
+-- TICKETS
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "tickets_select" ON public.tickets
+FOR SELECT USING (
+  auth.uid() = user_id OR public.is_admin()
+);
+
+CREATE POLICY "tickets_insert" ON public.tickets
+FOR INSERT WITH CHECK (
+  auth.uid() = user_id
+);
+
+-- TRANSACTIONS
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "trans_select" ON public.transactions
+FOR SELECT USING (
+  auth.uid() = user_id OR public.is_admin()
+);
+
+CREATE POLICY "trans_insert" ON public.transactions
+FOR INSERT WITH CHECK (
+  auth.uid() = user_id OR public.is_admin()
+);
+
+-- DAILY RESULTS
+CREATE TABLE IF NOT EXISTS public.daily_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date DATE NOT NULL,
+  draw_type TEXT NOT NULL,
+  number TEXT,
+  reventados_number TEXT,
+  ball_color TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(date, draw_type)
+);
+
+ALTER TABLE public.daily_results ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "results_select" ON public.daily_results;
+DROP POLICY IF EXISTS "results_write" ON public.daily_results;
+
+CREATE POLICY "results_select" ON public.daily_results
+FOR SELECT USING (true);
+
+CREATE POLICY "results_write" ON public.daily_results
+FOR ALL USING (public.is_admin());
+
+-- 4. TRIGGER DE USUARIO (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, name, role, balance)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'name', 'Nuevo Usuario'),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'client'),
+    0
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- 5. PUBLICACIÓN REALTIME
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOR t IN SELECT 'profiles' UNION SELECT 'tickets' UNION SELECT 'transactions' UNION SELECT 'daily_results'
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname='supabase_realtime'
+      AND tablename=t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I;', t);
+    END IF;
+  END LOOP;
+END $$;
+`;
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(sqlCode);
+        alert("Script SQL Maestro v7.0 copiado. Ejecútalo en Supabase.");
+    };
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-brand-primary flex items-center justify-center p-6">
+            <div className="max-w-3xl w-full bg-brand-secondary border-2 border-red-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(220,38,38,0.3)] relative overflow-hidden max-h-[90vh] flex flex-col">
+                <div className="absolute top-0 left-0 w-full h-2 bg-red-500 animate-pulse"></div>
+                
+                <div className="flex items-center gap-4 mb-4 shrink-0">
+                    <ExclamationTriangleIcon className="h-12 w-12 text-red-500" />
+                    <div>
+                        <h2 className="text-2xl font-black text-white uppercase">Reparación de Base de Datos</h2>
+                        <p className="text-red-400 font-mono text-sm">ERROR CRÍTICO: RECURSIVIDAD EN POLÍTICAS (RLS)</p>
+                    </div>
+                </div>
+                
+                <p className="text-brand-text-secondary mb-4 text-sm shrink-0">
+                    Se ha detectado un bucle infinito. Esto ocurre cuando <code>is_admin()</code> es <b>SECURITY INVOKER</b> y la política se llama a sí misma.
+                    <br/>
+                    <b>Solución:</b> Este script convierte la función a <code>SECURITY DEFINER</code>, permitiendo que lea el rol sin activar RLS de nuevo.
+                </p>
+                
+                <div className="relative bg-black p-4 rounded-lg border border-brand-border mb-6 group flex-grow overflow-hidden flex flex-col">
+                    <button 
+                        onClick={copyToClipboard}
+                        className="absolute top-4 right-4 bg-brand-accent hover:bg-brand-accent-hover text-white px-4 py-2 rounded shadow-lg text-xs font-bold flex items-center gap-2 transition-all z-10"
+                    >
+                        <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT v7.0
+                    </button>
+                    <pre className="text-[10px] md:text-xs text-green-400 font-mono overflow-y-auto custom-scrollbar whitespace-pre flex-grow p-2">
+                        {sqlCode}
+                    </pre>
+                </div>
+                
+                <div className="flex justify-end shrink-0">
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-brand-tertiary hover:bg-brand-primary border border-brand-border text-white px-6 py-3 rounded-xl font-bold text-sm transition-colors"
+                    >
+                        Ya ejecuté el SQL, Reiniciar App
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   // --- SYSTEM CLOCK & AUTO-RENEWAL ---
   const [todayISO, setTodayISO] = useState(getSmartLocalISO());
@@ -120,7 +318,7 @@ const App: React.FC = () => {
   }, []);
 
   // --- DATA HOOK ---
-  const { users, transactions, dbDailyResults, loading: dataLoading, refresh, optimisticUpdateResult } = useSupabaseData(session?.user?.id || null);
+  const { users, transactions, dbDailyResults, loading: dataLoading, error: supabaseError, refresh, optimisticUpdateResult } = useSupabaseData(session?.user?.id || null);
 
   // Derived State
   const currentUserId = session?.user?.id;
@@ -141,9 +339,8 @@ const App: React.FC = () => {
 
       return draws.map(drawType => {
           // 1. Check Database (Admin Override) - STRICT MATCH on Date & Draw
-          // Fixed: Compare normalized date strings to handle timestamps correctly
           const adminEntry = dbDailyResults.find(
-              r => r.date.startsWith(todayISO) && r.draw === drawType
+              r => r.date === todayISO && r.draw === drawType
           );
 
           if (adminEntry) {
@@ -199,22 +396,12 @@ const App: React.FC = () => {
   // --- ACTIONS ---
 
   const handleLogin = async (email: string, passwordInput: string): Promise<{ error: any; data: any }> => {
-    // Trigger Animation immediately
     setShowLoginAnim(true);
-    
-    // Perform Login
     const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: passwordInput,
     });
-    
-    if (error) {
-        setShowLoginAnim(false); // Stop if error
-    }
-    
-    // Note: We don't strictly need to setSession here because onAuthStateChange handles it,
-    // but the animation component will cover the screen during the transition.
-    
+    if (error) setShowLoginAnim(false);
     return { error, data };
   };
 
@@ -223,31 +410,43 @@ const App: React.FC = () => {
         email: userData.email!,
         password: userData.password!,
         options: {
-            data: { name: userData.name } 
+            // Include extended metadata here so the trigger can use it, 
+            // and data isn't lost if the immediate update fails due to RLS.
+            data: { 
+                name: userData.name, 
+                role: role,
+                phone: userData.phone,
+                cedula: userData.cedula
+            } 
         }
     });
 
     if (error && error.message.toLowerCase().includes('already registered')) {
-        console.log("Usuario ya existe, intentando autologin...");
         return handleLogin(userData.email!, userData.password!);
     }
 
     if (error) return { error, data };
 
     if (data.user) {
-        const { error: profileError } = await supabase.from('profiles').update({
-            role: role,
-            phone: userData.phone,
-            cedula: userData.cedula,
-            name: userData.name
-        }).eq('id', data.user.id);
-        
-        if (profileError) console.error("Error updating profile details:", profileError);
-        
-        // Trigger animation for successful register-login
+        // Only attempt to update profile if we have a session.
+        // If session is null (email confirmation pending), RLS will block the update.
         if (data.session) {
-            setShowLoginAnim(true);
+            const { error: profileError } = await supabase.from('profiles').update({
+                phone: userData.phone,
+                cedula: userData.cedula
+            }).eq('id', data.user.id);
+            
+            if (profileError) {
+                console.error("Profile Update Warning:", profileError.message || profileError);
+            } else {
+                setShowLoginAnim(true);
+            }
+        } else {
+            // Session not yet active (e.g. email verify required). 
+            // Data is safe in user_metadata for the trigger or future updates.
+            console.log("Registration successful. Session pending verification.");
         }
+        
         refresh(); 
     }
     
@@ -263,16 +462,18 @@ const App: React.FC = () => {
       const user = users.find(u => u.id === userId);
       if (!user) return;
 
-      await supabase.from('transactions').insert({
+      const { error } = await supabase.from('transactions').insert({
           user_id: userId,
           type: 'deposit',
           amount: amount,
           details: 'Recarga Admin'
       });
+      if(error) alert(`Error transaccion: ${error.message}`);
 
-      await supabase.from('profiles').update({
+      const { error: balError } = await supabase.from('profiles').update({
           balance: user.balance + amount
       }).eq('id', userId);
+      if(balError) alert(`Error balance: ${balError.message}`);
       
       refresh();
   };
@@ -281,16 +482,18 @@ const App: React.FC = () => {
       const user = users.find(u => u.id === userId);
       if (!user || user.balance < amount) return;
 
-      await supabase.from('transactions').insert({
+      const { error } = await supabase.from('transactions').insert({
           user_id: userId,
           type: 'withdraw',
           amount: amount,
           details: 'Retiro Fondos'
       });
+      if(error) alert(`Error transaccion: ${error.message}`);
 
-      await supabase.from('profiles').update({
+      const { error: balError } = await supabase.from('profiles').update({
           balance: user.balance - amount
       }).eq('id', userId);
+      if(balError) alert(`Error balance: ${balError.message}`);
       
       refresh();
   };
@@ -306,22 +509,27 @@ const App: React.FC = () => {
         return;
       }
 
+      // 1. Deduct Balance
       const { error: balError } = await supabase.from('profiles').update({
           balance: user.balance - totalCost
       }).eq('id', userId);
 
       if (balError) {
-          alert("Error actualizando saldo");
+          console.error("Balance Update Failed", balError);
+          alert("Error al descontar saldo. Intente de nuevo.");
           return;
       }
 
-      await supabase.from('transactions').insert({
+      // 2. Record Transaction
+      const { error: txError } = await supabase.from('transactions').insert({
           user_id: userId,
           type: 'purchase',
           amount: totalCost,
           details: `Compra: ${newTickets.length} jugadas`
       });
+      if (txError) console.error("Transaction Log Failed", txError);
 
+      // 3. Create Tickets
       const dbTickets = newTickets.map(t => ({
           user_id: userId,
           number: t.number,
@@ -331,16 +539,20 @@ const App: React.FC = () => {
           status: 'pending'
       }));
 
-      await supabase.from('tickets').insert(dbTickets);
-      refresh();
+      const { error: tickError } = await supabase.from('tickets').insert(dbTickets);
+      if (tickError) {
+          console.error("Ticket Creation Failed", tickError);
+          alert("Error creando tiquetes. Contacte soporte.");
+      } else {
+          refresh();
+      }
   };
 
   const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null) => {
       const todayStr = getSmartLocalISO();
       console.log(`[ADMIN UPDATE] Locking result for ${todayStr} - ${draw}: ${number}`);
 
-      // 1. OPTIMISTIC UPDATE (Instant Feedback for User)
-      // Updates local state immediately without waiting for network/DB
+      // Optimistic UI
       optimisticUpdateResult({
           date: todayStr,
           draw: draw,
@@ -349,7 +561,7 @@ const App: React.FC = () => {
           ballColor: ballColor
       });
 
-      // 2. SERVER UPDATE
+      // DB Upsert
       const { error } = await supabase
           .from('daily_results')
           .upsert({
@@ -362,8 +574,7 @@ const App: React.FC = () => {
 
       if (error) {
           console.error("Error updating result:", error);
-          alert("Error guardando resultado en la nube. El dato puede revertirse.");
-          // In a production app, we would rollback the optimistic update here
+          alert(`Error guardando resultado: ${error.message}`);
       } else {
           refresh(); 
       }
@@ -390,6 +601,12 @@ const App: React.FC = () => {
 
   if (authLoading) {
        return <div className="min-h-screen bg-brand-primary flex items-center justify-center text-brand-accent animate-pulse">CARGANDO SISTEMA...</div>;
+  }
+
+  // --- CRITICAL ERROR GUARD ---
+  // Detect infinite recursion specifically or general unexpected recursion
+  if (supabaseError && (supabaseError.toLowerCase().includes("infinite recursion") || supabaseError.toLowerCase().includes("recursion") || supabaseError.toLowerCase().includes("policy"))) {
+      return <DatabaseFixModal />;
   }
 
   return (
@@ -442,7 +659,12 @@ const App: React.FC = () => {
             </>
           ) : (
               <div className="flex-grow flex items-center justify-center flex-col gap-4">
-                 {/* While profile loads in background (animation usually covers this) */}
+                 <div className="text-brand-accent animate-pulse">Sincronizando perfil...</div>
+                 {supabaseError && (
+                     <div className="text-red-500 text-sm bg-red-900/20 p-2 rounded border border-red-900/50">
+                         {supabaseError}
+                     </div>
+                 )}
               </div>
           )}
           
