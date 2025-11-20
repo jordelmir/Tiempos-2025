@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Transaction, DailyResult } from '../types';
+import { mockUsers, mockTransactions } from '../mockData';
 
 // Utility to get local date ISO string matching the App's logic
 const getSmartLocalISO = () => {
@@ -16,12 +17,12 @@ export const useSupabaseData = (sessionUserId: string | null) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dbDailyResults, setDbDailyResults] = useState<DailyResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   // OPTIMISTIC UPDATE HANDLER
-  // Allows the UI to update immediately before the server responds
   const optimisticUpdateResult = useCallback((newResult: DailyResult) => {
       setDbDailyResults(prev => {
-          // Remove previous entry for the same draw/date to avoid duplicates/conflicts
           const others = prev.filter(r => !(r.date === newResult.date && r.draw === newResult.draw));
           return [...others, newResult];
       });
@@ -29,27 +30,29 @@ export const useSupabaseData = (sessionUserId: string | null) => {
 
   const fetchData = useCallback(async () => {
     try {
-      // 1. Fetch Profiles (Users)
+      setError(null);
+      
+      // 1. Fetch Profiles
       const { data: profiles, error: usersError } = await supabase
         .from('profiles')
         .select('*');
 
       if (usersError) throw usersError;
 
-      // 2. Fetch Tickets
+      // 2. Fetch Tickets (Include status)
       const { data: tickets, error: ticketsError } = await supabase
         .from('tickets')
         .select('*');
 
       if (ticketsError) throw ticketsError;
 
-      // 3. Map Data to App Types
+      // 3. Map Data
       const mappedUsers: User[] = (profiles || []).map(p => ({
         id: p.id,
         cedula: p.cedula || '',
         name: p.name || 'Usuario',
         email: p.email || '',
-        password: '', // Not needed in frontend with Supabase Auth
+        password: '', 
         phone: p.phone || '',
         balance: Number(p.balance) || 0,
         role: p.role as 'admin' | 'client',
@@ -59,7 +62,8 @@ export const useSupabaseData = (sessionUserId: string | null) => {
             amount: Number(t.amount),
             reventadosAmount: Number(t.reventados_amount),
             draw: t.draw_type as any,
-            purchaseDate: new Date(t.purchase_date)
+            purchaseDate: new Date(t.purchase_date),
+            status: t.status || 'pending' // Map status correctly from DB
         })) || []
       }));
 
@@ -85,40 +89,55 @@ export const useSupabaseData = (sessionUserId: string | null) => {
 
       setTransactions(mappedTxs);
 
-      // 5. Fetch Daily Results (The "Truth" Source)
-      // CRITICAL FIX: Use Local Time logic.
-      // We fetch strictly for the current LOCAL day.
+      // 5. Fetch Daily Results
       const todayLocalStr = getSmartLocalISO();
       
       const { data: results, error: resError } = await supabase
           .from('daily_results')
           .select('*')
-          .gte('date', todayLocalStr); // Fetch logic aligned with write logic
+          .gte('date', todayLocalStr); 
       
-      if (!resError && results) {
-          const mappedResults: DailyResult[] = results.map(r => ({
-              // CRITICAL FIX: Force date string format (YYYY-MM-DD) to avoid Timestamp mismatches
-              date: (r.date || '').substring(0, 10), 
-              draw: r.draw_type as any,
-              number: r.number,
-              reventadosNumber: r.reventados_number,
-              ballColor: r.ball_color as any
-          }));
-          setDbDailyResults(mappedResults);
+      if (resError) throw resError;
+
+      if (results) {
+          const uniqueMap = new Map<string, DailyResult>();
+          results.forEach(r => {
+              const key = `${(r.date || '').substring(0, 10)}-${r.draw_type}`;
+              if (!uniqueMap.has(key) || r.number) {
+                   uniqueMap.set(key, {
+                      date: (r.date || '').substring(0, 10), 
+                      draw: r.draw_type as any,
+                      number: r.number,
+                      reventadosNumber: r.reventados_number,
+                      ballColor: r.ball_color as any
+                   });
+              }
+          });
+          setDbDailyResults(Array.from(uniqueMap.values()));
       }
 
       setLoading(false);
+      setIsDemoMode(false);
 
-    } catch (error) {
-      console.error("Error fetching Supabase data:", error);
+    } catch (err: any) {
+      console.warn("Supabase connection failed or tables missing. Switching to Demo Mode.", err);
+      
+      // FALLBACK TO MOCK DATA instead of showing critical error
+      setUsers(mockUsers);
+      setTransactions(mockTransactions);
+      setDbDailyResults([]); 
+      setIsDemoMode(true);
       setLoading(false);
+      
+      // Explicitly set error to null to avoid rendering issues in UI.
+      // The demo banner will be shown instead via isDemoMode.
+      setError(null); 
     }
   }, []);
 
   useEffect(() => {
     fetchData();
 
-    // Real-time subscription
     const channel = supabase.channel('db-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => fetchData())
@@ -131,5 +150,5 @@ export const useSupabaseData = (sessionUserId: string | null) => {
     };
   }, [fetchData]);
 
-  return { users, transactions, dbDailyResults, loading, refresh: fetchData, optimisticUpdateResult };
+  return { users, transactions, dbDailyResults, loading, error, refresh: fetchData, optimisticUpdateResult, isDemoMode };
 };

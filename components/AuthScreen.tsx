@@ -15,7 +15,7 @@ import {
   RefreshIcon,
   UserCircleIcon,
   UserGroupIcon
-} from './icons/Icons';
+} from './common/Icons';
 import type { User } from '../types';
 import { analyzePasswordStrength, type PasswordStrength } from '../utils/security';
 

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { User, DailyResult, DrawType, BallColor, Transaction, HistoryResult, Ticket } from '../types';
 import Card from './common/Card';
@@ -33,8 +34,9 @@ import {
     ChevronRightIcon,
     CalendarDaysIcon,
     XCircleIcon,
-    KeyIcon
-} from './icons/Icons';
+    KeyIcon,
+    TrashIcon
+} from './common/Icons';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -48,6 +50,7 @@ interface AdminPanelProps {
   onUpdateHistory: (date: string, data: HistoryResult['results']) => void; 
   onRegisterClient: (userData: Partial<User>) => void;
   onForceResetPassword: (userId: string) => void;
+  onResetSystem: () => void;
 }
 
 type TabView = 'finance' | 'draws' | 'reports';
@@ -89,7 +92,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     onUpdateResult,
     onUpdateHistory,
     onRegisterClient,
-    onForceResetPassword
+    onForceResetPassword,
+    onResetSystem
 }) => {
   const [activeTab, setActiveTab] = useState<TabView>('draws'); 
   
@@ -888,7 +892,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {activeTab === 'finance' && (
            <div className="space-y-8 animate-fade-in-up">
-              <div className="flex justify-center items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                   <div className="bg-brand-secondary border border-brand-border rounded-full p-1 flex items-center gap-4 shadow-2xl">
                       <button onClick={() => handleWeekNav('prev')} className="p-2 rounded-full hover:bg-white/10 text-brand-text-secondary hover:text-white transition-colors"><ChevronLeftIcon className="h-5 w-5"/></button>
                       <div className="flex flex-col items-center px-4">
@@ -899,15 +903,29 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                       <button onClick={() => handleWeekNav('next')} className="p-2 rounded-full hover:bg-white/10 text-brand-text-secondary hover:text-white transition-colors" disabled={weeklyData.currentKey === selectedWeekKey}><ChevronRightIcon className="h-5 w-5"/></button>
                   </div>
-                  {weeklyData.currentKey !== selectedWeekKey && (<button onClick={handleJumpToCurrent} className="ml-4 text-[10px] font-bold uppercase text-brand-accent hover:text-white border border-brand-accent/30 hover:border-brand-accent rounded-full px-3 py-1 transition-all">Volver a Hoy</button>)}
+                  
+                  <div className="flex gap-2">
+                    {weeklyData.currentKey !== selectedWeekKey && (<button onClick={handleJumpToCurrent} className="text-[10px] font-bold uppercase text-brand-accent hover:text-white border border-brand-accent/30 hover:border-brand-accent rounded-full px-3 py-1 transition-all">Volver a Hoy</button>)}
+                    
+                    <button onClick={onResetSystem} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/30 bg-red-950/20 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 text-[10px] font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(220,38,38,0.1)] hover:shadow-[0_0_20px_rgba(220,38,38,0.4)]">
+                         <TrashIcon className="h-3 w-3"/> Hard Reset
+                    </button>
+                  </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="relative bg-brand-secondary border-2 border-brand-gold rounded-2xl p-8 overflow-hidden shadow-[0_0_30px_rgba(234,179,8,0.1)] group">
                       <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
-                      <div className="relative z-10 text-center">
-                          <div className="flex items-center justify-center gap-2 mb-4"><h4 className="text-sm font-black text-brand-gold uppercase tracking-widest">GANANCIAS (NETO)</h4></div>
-                          <div className={`text-4xl md:text-5xl font-black font-mono tracking-tighter ${selectedWeekStats.net >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>{selectedWeekStats.net >= 0 ? '+' : ''}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(selectedWeekStats.net)}</div>
+                      <div className="relative z-10 text-center flex flex-col items-center justify-center h-full">
+                          <div className="flex items-center justify-center gap-2 mb-2"><h4 className="text-sm font-black text-brand-gold uppercase tracking-widest">GANANCIAS (NETO)</h4></div>
+                          
+                          {/* ADAPTIVE TEXT SIZE IMPLEMENTATION */}
+                          <div className="w-full px-1">
+                             <div className={`font-black font-mono tracking-tighter w-full text-center ${selectedWeekStats.net >= 0 ? 'text-brand-success' : 'text-brand-danger'}`} style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                                 {selectedWeekStats.net >= 0 ? '+' : ''}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(selectedWeekStats.net)}
+                             </div>
+                          </div>
+
                           <p className="text-xs text-brand-text-secondary mt-2 opacity-70 font-mono uppercase">{weeklyData.currentKey === selectedWeekKey ? '(ACUMULADO SEMANA ACTUAL)' : '(CIERRE DE SEMANA)'}</p>
                       </div>
                   </div>

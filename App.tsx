@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Ticket, DailyResult, DrawType, BallColor, HistoryResult } from './types';
 import { fetchOfficialData } from './utils/jpsAgent';
@@ -6,10 +7,10 @@ import ClientPanel from './components/ClientPanel';
 import AuthScreen from './components/AuthScreen';
 import Header from './components/Header';
 import Footer from './components/Footer';
-import SecurityModal from './components/SecurityModal';
+import SecurityModal from './components/common/SecurityModal';
 import { supabase } from './lib/supabase';
-import { useSupabaseData } from './hooks/useSupabaseData';
-import { CheckCircleIcon, CpuIcon, ShieldCheckIcon } from './components/icons/Icons';
+import { useSupabaseData } from './components/useSupabaseData';
+import { CheckCircleIcon, CpuIcon, ShieldCheckIcon, ExclamationTriangleIcon, RefreshIcon } from './components/common/Icons';
 
 type View = 'admin' | 'client';
 
@@ -104,7 +105,17 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [showLoginAnim, setShowLoginAnim] = useState(false);
 
+  // --- DATA HOOK ---
+  const { users, transactions, dbDailyResults, loading: dataLoading, error: dbError, refresh, optimisticUpdateResult, isDemoMode } = useSupabaseData(session?.user?.id || null);
+
   useEffect(() => {
+    // If we are in Demo Mode, simulate a logged-in session with the first mock user (Admin)
+    if (isDemoMode && !session) {
+        setSession({ user: { id: 'usr_1', email: 'elena.r@example.com' } });
+        setAuthLoading(false);
+        return;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
@@ -116,10 +127,7 @@ const App: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  // --- DATA HOOK ---
-  const { users, transactions, dbDailyResults, loading: dataLoading, refresh, optimisticUpdateResult } = useSupabaseData(session?.user?.id || null);
+  }, [isDemoMode]);
 
   // Derived State
   const currentUserId = session?.user?.id;
@@ -132,7 +140,14 @@ const App: React.FC = () => {
   const [jpsResults, setJpsResults] = useState<DailyResult[]>([]); 
   const [historyResults, setHistoryResults] = useState<HistoryResult[]>([]);
   const [nextDrawTime, setNextDrawTime] = useState<string>('Calculando...');
+  const [nextDrawTarget, setNextDrawTarget] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Filter transactions for current user
+  const userTransactions = useMemo(() => {
+      if (!currentUserId) return [];
+      return transactions.filter(t => t.userId === currentUserId);
+  }, [transactions, currentUserId]);
 
   // --- HYBRID DATA MERGE (THE SOURCE OF TRUTH) ---
   const effectiveDailyResults = useMemo(() => {
@@ -140,9 +155,9 @@ const App: React.FC = () => {
 
       return draws.map(drawType => {
           // 1. Check Database (Admin Override) - STRICT MATCH on Date & Draw
-          // Fixed: Compare normalized date strings to handle timestamps correctly
+          // dbDailyResults has already been filtered by date in hook
           const adminEntry = dbDailyResults.find(
-              r => r.date.startsWith(todayISO) && r.draw === drawType
+              r => r.draw === drawType
           );
 
           if (adminEntry) {
@@ -182,6 +197,7 @@ const App: React.FC = () => {
             const data = await fetchOfficialData();
             setJpsResults(data.today);
             setNextDrawTime(data.nextDraw);
+            setNextDrawTarget(data.nextDrawTarget); // Actualizar la fecha objetivo
             setHistoryResults(data.history);
         } catch (e) {
             console.error("Error fetching data", e);
@@ -211,9 +227,6 @@ const App: React.FC = () => {
         setShowLoginAnim(false); // Stop if error
     }
     
-    // Note: We don't strictly need to setSession here because onAuthStateChange handles it,
-    // but the animation component will cover the screen during the transition.
-    
     return { error, data };
   };
 
@@ -222,7 +235,7 @@ const App: React.FC = () => {
         email: userData.email!,
         password: userData.password!,
         options: {
-            data: { name: userData.name } 
+            data: { name: userData.name, role: role } 
         }
     });
 
@@ -233,34 +246,36 @@ const App: React.FC = () => {
 
     if (error) return { error, data };
 
-    if (data.user) {
-        const { error: profileError } = await supabase.from('profiles').update({
-            role: role,
-            phone: userData.phone,
-            cedula: userData.cedula,
-            name: userData.name
-        }).eq('id', data.user.id);
-        
-        if (profileError) console.error("Error updating profile details:", profileError);
-        
-        // Trigger animation for successful register-login
-        if (data.session) {
-            setShowLoginAnim(true);
-        }
-        refresh(); 
+    // Wait a moment for the trigger to run
+    await new Promise(r => setTimeout(r, 1000));
+    
+    // Trigger animation for successful register-login if auto-sign-in works
+    if (data.session) {
+        setShowLoginAnim(true);
     }
+    refresh(); 
     
     return { error: null, data };
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+    if (isDemoMode) {
+        window.location.reload(); // Reload to reset demo state if needed
+    } else {
+        await supabase.auth.signOut();
+        setSession(null);
+    }
   };
 
   const handleRecharge = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
       if (!user) return;
+
+      if (isDemoMode) {
+          // Mock update logic
+          alert("Modo Demo: Recarga simulada");
+          return;
+      }
 
       await supabase.from('transactions').insert({
           user_id: userId,
@@ -279,6 +294,11 @@ const App: React.FC = () => {
   const handleWithdraw = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
       if (!user || user.balance < amount) return;
+
+      if (isDemoMode) {
+          alert("Modo Demo: Retiro simulado");
+          return;
+      }
 
       await supabase.from('transactions').insert({
           user_id: userId,
@@ -305,6 +325,12 @@ const App: React.FC = () => {
         return;
       }
 
+      if (isDemoMode) {
+          // In demo mode, we act as if it worked but don't persist
+          alert("Modo Demo: Compra simulada exitosa");
+          return;
+      }
+
       const { error: balError } = await supabase.from('profiles').update({
           balance: user.balance - totalCost
       }).eq('id', userId);
@@ -314,11 +340,18 @@ const App: React.FC = () => {
           return;
       }
 
+      // Construct detailed string for transaction history
+      // Example: "#25 (₡1000), #88 (₡500 + Rev ₡200)"
+      const detailsStr = newTickets.map(t => {
+          const rev = t.reventadosAmount ? ` + Rev(₡${t.reventadosAmount})` : '';
+          return `#${t.number} (₡${t.amount}${rev})`;
+      }).join(', ');
+
       await supabase.from('transactions').insert({
           user_id: userId,
           type: 'purchase',
           amount: totalCost,
-          details: `Compra: ${newTickets.length} jugadas`
+          details: detailsStr // Use detailed list instead of generic text
       });
 
       const dbTickets = newTickets.map(t => ({
@@ -336,10 +369,8 @@ const App: React.FC = () => {
 
   const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null): Promise<boolean> => {
       const todayStr = getSmartLocalISO();
-      console.log(`[ADMIN UPDATE] Locking result for ${todayStr} - ${draw}: ${number}`);
-
-      // 1. OPTIMISTIC UPDATE (Instant Feedback for User)
-      // Updates local state immediately without waiting for network/DB
+      
+      // 1. OPTIMISTIC UPDATE
       optimisticUpdateResult({
           date: todayStr,
           draw: draw,
@@ -347,6 +378,8 @@ const App: React.FC = () => {
           reventadosNumber: rev,
           ballColor: ballColor
       });
+
+      if (isDemoMode) return true;
 
       // 2. SERVER UPDATE
       const { error } = await supabase
@@ -361,7 +394,8 @@ const App: React.FC = () => {
 
       if (error) {
           console.error("Error updating result:", error);
-          alert(`Error guardando resultado: ${error.message}`);
+          const errorMsg = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+          alert(`Error guardando resultado: ${errorMsg}.`);
           return false;
       } else {
           refresh(); 
@@ -370,6 +404,11 @@ const App: React.FC = () => {
   };
 
   const handleHistoryUpdate = async (dateStr: string, res: any) => {
+      if (isDemoMode) {
+          alert("Modo Demo: El historial no se guarda en base de datos.");
+          return;
+      }
+      
       const updates = [];
       if (res.mediodia.number) updates.push({ date: dateStr, draw_type: 'mediodia', number: res.mediodia.number, reventados_number: res.mediodia.reventadosNumber, ball_color: res.mediodia.ball });
       if (res.tarde.number) updates.push({ date: dateStr, draw_type: 'tarde', number: res.tarde.number, reventados_number: res.tarde.reventadosNumber, ball_color: res.tarde.ball });
@@ -379,7 +418,10 @@ const App: React.FC = () => {
           const { error } = await supabase
               .from('daily_results')
               .upsert(updates, { onConflict: 'date, draw_type' });
-          if (error) console.error("History update failed", error);
+          if (error) {
+              console.error("History update failed", error);
+              alert(`Error actualizando historial: ${error.message}`);
+          }
           else refresh();
       }
   };
@@ -388,12 +430,58 @@ const App: React.FC = () => {
       alert("Para resetear contraseña real se requiere Backend Function (Edge Function).");
   };
 
+  // --- NEW: SYSTEM WIDE RESET FOR DEMO PURPOSES ---
+  const handleSystemReset = async () => {
+      if (isDemoMode) {
+          alert("Simulando reseteo total...");
+          window.location.reload();
+          return;
+      }
+
+      const confirmReset = window.confirm("⚠️ ALERTA DE SEGURIDAD ⚠️\n\nEstás a punto de borrar TODAS las transacciones y poner el saldo de TODOS los usuarios en 0.\n\n¿Estás seguro de realizar esta limpieza?");
+      
+      if (!confirmReset) return;
+
+      try {
+          // 1. Delete transactions
+          const { error: txError } = await supabase.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+          if (txError) throw txError;
+
+          // 2. Reset Profiles Balance
+          const { error: profError } = await supabase.from('profiles').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+          if (profError) throw profError;
+
+          alert("✅ Sistema restablecido correctamente. Base de datos limpia.");
+          refresh();
+
+      } catch (e) {
+          console.error("Reset failed", e);
+          alert("Error ejecutando el reseteo: " + (e as any).message);
+      }
+  };
+
   if (authLoading) {
        return <div className="min-h-screen bg-brand-primary flex items-center justify-center text-brand-accent animate-pulse">CARGANDO SISTEMA...</div>;
   }
 
   return (
     <div className="min-h-screen bg-brand-primary text-brand-text-primary flex flex-col">
+      {/* DEMO MODE BANNER */}
+      {isDemoMode && (
+          <div className="bg-yellow-600 text-white p-2 text-center text-xs font-bold flex items-center justify-center gap-2 sticky top-0 z-[99999] shadow-xl">
+              <ExclamationTriangleIcon className="h-4 w-4" />
+              MODO DEMO ACTIVADO: Base de datos no conectada. Usando datos locales.
+          </div>
+      )}
+      
+      {/* General DB Error Banner (Non-critical) */}
+      {dbError && !isDemoMode && (
+          <div className="bg-red-600 text-white p-3 text-center text-xs font-bold animate-pulse flex items-center justify-center gap-2 fixed top-0 w-full z-[99999] shadow-2xl">
+              <ExclamationTriangleIcon className="h-5 w-5" />
+              ERROR: {typeof dbError === 'string' ? dbError : (dbError as any)?.message || 'Error desconocido'}
+          </div>
+      )}
+
       {/* ANIMATION LAYER */}
       {showLoginAnim && <LoginSequence onComplete={() => setShowLoginAnim(false)} />}
 
@@ -412,33 +500,38 @@ const App: React.FC = () => {
         <>
           {currentUser ? (
             <>
-                <Header view={view} setView={setView} currentUser={currentUser} onLogout={handleLogout} />
-                <main className="flex-grow container mx-auto p-4 md:p-8">
-                    {view === 'admin' && currentUser.role === 'admin' ? (
-                    <AdminPanel 
-                        currentUser={currentUser}
-                        users={users} 
-                        dailyResults={effectiveDailyResults} 
-                        historyResults={historyResults}
-                        transactions={transactions}
-                        onRecharge={handleRecharge} 
-                        onWithdraw={handleWithdraw}
-                        onUpdateResult={handleManualResultUpdate}
-                        onUpdateHistory={handleHistoryUpdate}
-                        onRegisterClient={(data) => handleRegister(data, 'client')}
-                        onForceResetPassword={handleForceReset}
-                    />
-                    ) : (
-                    <ClientPanel 
-                        user={currentUser} 
-                        onPurchase={handlePurchase} 
-                        dailyResults={effectiveDailyResults} 
-                        historyResults={historyResults}
-                        nextDrawTime={nextDrawTime}
-                        isSyncing={isSyncing}
-                    />
-                    )}
-                </main>
+                <div className={(dbError || isDemoMode) ? "mt-8" : ""}>
+                    <Header view={view} setView={setView} currentUser={currentUser} onLogout={handleLogout} />
+                    <main className="flex-grow container mx-auto p-4 md:p-8">
+                        {view === 'admin' && currentUser.role === 'admin' ? (
+                        <AdminPanel 
+                            currentUser={currentUser}
+                            users={users} 
+                            dailyResults={effectiveDailyResults} 
+                            historyResults={historyResults}
+                            transactions={transactions}
+                            onRecharge={handleRecharge} 
+                            onWithdraw={handleWithdraw}
+                            onUpdateResult={handleManualResultUpdate}
+                            onUpdateHistory={handleHistoryUpdate}
+                            onRegisterClient={(data) => handleRegister(data, 'client')}
+                            onForceResetPassword={handleForceReset}
+                            onResetSystem={handleSystemReset}
+                        />
+                        ) : (
+                        <ClientPanel 
+                            user={currentUser} 
+                            onPurchase={handlePurchase} 
+                            dailyResults={effectiveDailyResults} 
+                            historyResults={historyResults}
+                            nextDrawTime={nextDrawTime}
+                            nextDrawTarget={nextDrawTarget}
+                            isSyncing={isSyncing}
+                            transactions={userTransactions}
+                        />
+                        )}
+                    </main>
+                </div>
             </>
           ) : (
               <div className="flex-grow flex items-center justify-center flex-col gap-4">

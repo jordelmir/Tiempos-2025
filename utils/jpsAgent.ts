@@ -302,17 +302,46 @@ export const getNextDrawLabel = (): string => {
     const tardeTime = DRAW_SCHEDULE.tarde.hour * 60 + DRAW_SCHEDULE.tarde.minute;
     const nocheTime = DRAW_SCHEDULE.noche.hour * 60 + DRAW_SCHEDULE.noche.minute;
 
-    if (currentMinutes < mediodiaTime) return `MEDIODÍA a la 12:55 PM`;
-    if (currentMinutes < tardeTime) return `TARDE a las 4:30 PM`;
-    if (currentMinutes < nocheTime) return `NOCHE a las 7:30 PM`;
-    return "Sorteos Finalizados";
+    if (currentMinutes < mediodiaTime) return `MEDIODÍA (12:55 PM)`;
+    if (currentMinutes < tardeTime) return `TARDE (4:30 PM)`;
+    if (currentMinutes < nocheTime) return `NOCHE (7:30 PM)`;
+    return "Próximo: Mañana 12:55 PM";
+};
+
+// Nuevo cálculo preciso para la cuenta regresiva
+export const getNextDrawTarget = (): Date => {
+    const now = new Date();
+    const today = new Date(); // Clona fecha base
+    today.setSeconds(0);
+    today.setMilliseconds(0);
+
+    // Definir los momentos de sorteo de HOY
+    const drawsToday = [
+        { ...DRAW_SCHEDULE.mediodia, date: new Date(today.setHours(DRAW_SCHEDULE.mediodia.hour, DRAW_SCHEDULE.mediodia.minute)) },
+        { ...DRAW_SCHEDULE.tarde, date: new Date(today.setHours(DRAW_SCHEDULE.tarde.hour, DRAW_SCHEDULE.tarde.minute)) },
+        { ...DRAW_SCHEDULE.noche, date: new Date(today.setHours(DRAW_SCHEDULE.noche.hour, DRAW_SCHEDULE.noche.minute)) }
+    ];
+
+    // Buscar el primer sorteo que sea MAYOR que 'now'
+    const nextDraw = drawsToday.find(d => d.date > now);
+
+    if (nextDraw) {
+        return nextDraw.date;
+    } else {
+        // Si ya pasaron todos los de hoy, el próximo es mañana a mediodía
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(DRAW_SCHEDULE.mediodia.hour, DRAW_SCHEDULE.mediodia.minute, 0, 0);
+        return tomorrow;
+    }
 };
 
 // --- FUNCIÓN PRINCIPAL EXPORTADA ---
 
-export const fetchOfficialData = async (): Promise<{today: DailyResult[], history: HistoryResult[], nextDraw: string}> => {
+export const fetchOfficialData = async (): Promise<{today: DailyResult[], history: HistoryResult[], nextDraw: string, nextDrawTarget: Date}> => {
     const todayStr = normalizeDate(new Date().toLocaleDateString());
     const nextDraw = getNextDrawLabel();
+    const nextDrawTarget = getNextDrawTarget(); // Obtenemos el objeto fecha real
 
     // 1. Ejecutar Consenso
     const consensusToday = await executeConsensus(todayStr);
@@ -342,16 +371,14 @@ export const fetchOfficialData = async (): Promise<{today: DailyResult[], histor
         }
     ];
 
-    // 3. Obtener historial (usando la fuente más rápida solo para rellenar tabla histórica)
-    // Para historial antiguo no necesitamos consenso estricto en tiempo real, JPS es suficiente.
+    // 3. Obtener historial
     const historySource = SOURCES.find(s => s.id === 'jps')!;
-    const rawHistory = await fetchSourceData(historySource, 'HISTORIC_MODE'); // El parser JPS devuelve array si se adapta, pero aquí simplificamos
-    // Nota: En un entorno real, el historial se gestionaría separado. 
-    // Para mantener compatibilidad con el código existente, devolvemos un array vacío o el último fetch exitoso cacheado.
+    const rawHistory = await fetchSourceData(historySource, 'HISTORIC_MODE'); 
     
     return {
         today: todayResults,
-        history: [], // El historial se rellenará progresivamente o se mantiene desde localStorage en App.tsx
-        nextDraw
+        history: [],
+        nextDraw,
+        nextDrawTarget // Retornamos la fecha objetivo
     };
 };
