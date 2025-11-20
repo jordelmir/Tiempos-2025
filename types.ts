@@ -1,7 +1,7 @@
 
 export type DrawType = 'mediodia' | 'tarde' | 'noche';
 export type BallColor = 'blanca' | 'roja';
-export type TransactionType = 'purchase' | 'withdraw' | 'deposit' | 'winnings';
+export type TransactionType = 'purchase' | 'withdraw' | 'deposit';
 
 export interface Ticket {
   id: string;
@@ -10,7 +10,6 @@ export interface Ticket {
   reventadosAmount?: number; // Optional Reventados amount
   purchaseDate: Date;
   draw: DrawType;
-  status: 'pending' | 'paid' | 'lost'; // Nuevo campo vital para controlar pagos
 }
 
 export interface User {
@@ -27,6 +26,7 @@ export interface User {
 }
 
 export interface DailyResult {
+  id?: string; // UUID from Database
   date: string;
   draw: DrawType;
   number: string | null; // null if not yet played

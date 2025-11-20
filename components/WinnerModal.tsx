@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Button from './common/Button';
-import { FireIcon, TicketIcon, CheckCircleIcon, MailIcon } from './common/Icons';
+import { FireIcon, TicketIcon, CheckCircleIcon, MailIcon } from './icons/Icons';
 
 interface WinnerModalProps {
   winType: 'regular' | 'reventados' | null;

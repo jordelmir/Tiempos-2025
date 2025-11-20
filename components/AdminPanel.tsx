@@ -34,9 +34,8 @@ import {
     ChevronRightIcon,
     CalendarDaysIcon,
     XCircleIcon,
-    KeyIcon,
-    TrashIcon
-} from './common/Icons';
+    KeyIcon
+} from './icons/Icons';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -46,11 +45,10 @@ interface AdminPanelProps {
   transactions: Transaction[];
   onRecharge: (userId: string, amount: number) => void;
   onWithdraw: (userId: string, amount: number) => void;
-  onUpdateResult: (draw: DrawType, number: string | null, ballColor: BallColor | null, reventadosNumber: string | null) => Promise<boolean>;
+  onUpdateResult: (draw: DrawType, number: string | null, ballColor: BallColor | null, reventadosNumber: string | null) => void;
   onUpdateHistory: (date: string, data: HistoryResult['results']) => void; 
   onRegisterClient: (userData: Partial<User>) => void;
   onForceResetPassword: (userId: string) => void;
-  onResetSystem: () => void;
 }
 
 type TabView = 'finance' | 'draws' | 'reports';
@@ -59,7 +57,7 @@ type TabView = 'finance' | 'draws' | 'reports';
 interface DrawConfirmationState {
     isActive: boolean;
     type: 'normal' | 'reventado' | null;
-    step: 'input' | 'processing' | 'confirming' | 'complete' | 'error';
+    step: 'input' | 'processing' | 'confirming' | 'complete';
     drawType: DrawType | null;
     logs: string[];
 }
@@ -92,8 +90,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     onUpdateResult,
     onUpdateHistory,
     onRegisterClient,
-    onForceResetPassword,
-    onResetSystem
+    onForceResetPassword
 }) => {
   const [activeTab, setActiveTab] = useState<TabView>('draws'); 
   
@@ -349,7 +346,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       setDrawRevNumber('');
   };
 
-  const handleConfirmDraw = async () => {
+  const handleConfirmDraw = () => {
       if (!drawNumber) return;
       const isReventado = drawBall === 'roja';
       const type = isReventado ? 'reventado' : 'normal';
@@ -361,40 +358,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           logs: ['INITIATING_MANUAL_OVERRIDE...', 'LOCKING_INPUT_CHANNEL...', 'ENCRYPTING_PACKET...']
       }));
 
-      // Artificial delay for animation
-      await new Promise(r => setTimeout(r, 1200));
-
-      setConfirmAnim(prev => ({ 
-          ...prev, 
-          step: 'confirming',
-          logs: [...prev.logs, 'MANUAL_ENTRY_VERIFIED', 'BROADCASTING_TO_LEDGER...']
-      }));
-
-      // Artificial delay for animation
-      await new Promise(r => setTimeout(r, 1000));
-
-      const success = await onUpdateResult(
-          editingDraw!, 
-          drawNumber, 
-          drawBall, 
-          isReventado ? (drawRevNumber || drawNumber) : null
-      );
-
-      if (success) {
-          setConfirmAnim(prev => ({ ...prev, step: 'complete' }));
-          setTimeout(() => {
-              handleCloseDrawModal();
-          }, 2000);
-      } else {
+      setTimeout(() => {
           setConfirmAnim(prev => ({ 
               ...prev, 
-              step: 'error',
-              logs: [...prev.logs, 'ERROR: TRANSACTION REJECTED', 'CHECK DB CONSTRAINTS']
+              step: 'confirming',
+              logs: [...prev.logs, 'MANUAL_ENTRY_VERIFIED', 'BROADCASTING_TO_LEDGER...']
           }));
           setTimeout(() => {
-              handleCloseDrawModal();
-          }, 3000);
-      }
+              onUpdateResult(
+                  editingDraw!, 
+                  drawNumber, 
+                  drawBall, 
+                  isReventado ? (drawRevNumber || drawNumber) : null
+              );
+              setConfirmAnim(prev => ({ ...prev, step: 'complete' }));
+              
+              setTimeout(() => {
+                  handleCloseDrawModal();
+              }, 2000);
+          }, 1500);
+      }, 1200);
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -554,22 +537,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="mt-8 h-1 w-full bg-brand-tertiary rounded-full overflow-hidden">
                               <div className={`h-full animate-progress-indeterminate ${confirmAnim.type === 'reventado' ? 'bg-red-600' : 'bg-brand-accent'}`}></div>
                           </div>
-                          {/* Render logs here too if needed for debugging */}
-                          <div className="font-mono text-xs text-brand-text-secondary space-y-1 mt-4 h-12 overflow-hidden opacity-50">
-                              {confirmAnim.logs.slice(-2).map((log, i) => (
-                                  <div key={i} className="animate-fade-in-up text-left pl-10"><span className="text-brand-accent">{'>'}</span> {log}</div>
-                              ))}
-                          </div>
-                      </div>
-                  )}
-
-                  {confirmAnim.step === 'error' && (
-                      <div className="animate-shake-hard">
-                          <ExclamationTriangleIcon className="h-32 w-32 mx-auto mb-6 text-red-500 drop-shadow-[0_0_25px_rgba(220,38,38,0.5)]"/>
-                          <h2 className="text-3xl font-black text-red-500 uppercase tracking-tight">
-                              ERROR DE ESCRITURA
-                          </h2>
-                          <p className="text-xs font-mono text-brand-text-secondary mt-2">REVISE PERMISOS Y DUPLICADOS</p>
                       </div>
                   )}
 
@@ -827,9 +794,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
       )}
       
-      {/* FINANCE AND REPORT TABS (Unchanged layout logic) */}
+      {/* FINANCE AND REPORT TABS */}
       {activeTab === 'reports' && (
           <div className="max-w-4xl mx-auto space-y-8">
+              {/* Report Content Remains Unchanged */}
               <Card className="relative overflow-hidden border-brand-accent/30">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer"></div>
                   <div className="flex items-center gap-4 mb-8">
@@ -892,7 +860,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {activeTab === 'finance' && (
            <div className="space-y-8 animate-fade-in-up">
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+              {/* Finance Content Remains Unchanged */}
+              <div className="flex justify-center items-center">
                   <div className="bg-brand-secondary border border-brand-border rounded-full p-1 flex items-center gap-4 shadow-2xl">
                       <button onClick={() => handleWeekNav('prev')} className="p-2 rounded-full hover:bg-white/10 text-brand-text-secondary hover:text-white transition-colors"><ChevronLeftIcon className="h-5 w-5"/></button>
                       <div className="flex flex-col items-center px-4">
@@ -903,29 +872,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                       <button onClick={() => handleWeekNav('next')} className="p-2 rounded-full hover:bg-white/10 text-brand-text-secondary hover:text-white transition-colors" disabled={weeklyData.currentKey === selectedWeekKey}><ChevronRightIcon className="h-5 w-5"/></button>
                   </div>
-                  
-                  <div className="flex gap-2">
-                    {weeklyData.currentKey !== selectedWeekKey && (<button onClick={handleJumpToCurrent} className="text-[10px] font-bold uppercase text-brand-accent hover:text-white border border-brand-accent/30 hover:border-brand-accent rounded-full px-3 py-1 transition-all">Volver a Hoy</button>)}
-                    
-                    <button onClick={onResetSystem} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/30 bg-red-950/20 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 text-[10px] font-bold uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(220,38,38,0.1)] hover:shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                         <TrashIcon className="h-3 w-3"/> Hard Reset
-                    </button>
-                  </div>
+                  {weeklyData.currentKey !== selectedWeekKey && (<button onClick={handleJumpToCurrent} className="ml-4 text-[10px] font-bold uppercase text-brand-accent hover:text-white border border-brand-accent/30 hover:border-brand-accent rounded-full px-3 py-1 transition-all">Volver a Hoy</button>)}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="relative bg-brand-secondary border-2 border-brand-gold rounded-2xl p-8 overflow-hidden shadow-[0_0_30px_rgba(234,179,8,0.1)] group">
                       <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
-                      <div className="relative z-10 text-center flex flex-col items-center justify-center h-full">
-                          <div className="flex items-center justify-center gap-2 mb-2"><h4 className="text-sm font-black text-brand-gold uppercase tracking-widest">GANANCIAS (NETO)</h4></div>
-                          
-                          {/* ADAPTIVE TEXT SIZE IMPLEMENTATION */}
-                          <div className="w-full px-1">
-                             <div className={`font-black font-mono tracking-tighter w-full text-center ${selectedWeekStats.net >= 0 ? 'text-brand-success' : 'text-brand-danger'}`} style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                                 {selectedWeekStats.net >= 0 ? '+' : ''}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(selectedWeekStats.net)}
-                             </div>
-                          </div>
-
+                      <div className="relative z-10 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-4"><h4 className="text-sm font-black text-brand-gold uppercase tracking-widest">GANANCIAS (NETO)</h4></div>
+                          <div className={`text-4xl md:text-5xl font-black font-mono tracking-tighter ${selectedWeekStats.net >= 0 ? 'text-brand-success' : 'text-brand-danger'}`}>{selectedWeekStats.net >= 0 ? '+' : ''}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(selectedWeekStats.net)}</div>
                           <p className="text-xs text-brand-text-secondary mt-2 opacity-70 font-mono uppercase">{weeklyData.currentKey === selectedWeekKey ? '(ACUMULADO SEMANA ACTUAL)' : '(CIERRE DE SEMANA)'}</p>
                       </div>
                   </div>

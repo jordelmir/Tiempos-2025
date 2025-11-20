@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Button from './common/Button';
-import { CheckCircleIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, TicketIcon, FireIcon, BoltIcon, CpuIcon, ShieldCheckIcon, XCircleIcon } from './common/Icons';
+import { CheckCircleIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, TicketIcon, FireIcon, BoltIcon, CpuIcon, ShieldCheckIcon, XCircleIcon } from './icons/Icons';
 
 export type ActionType = 'deposit' | 'withdraw' | 'purchase' | 'error';
 

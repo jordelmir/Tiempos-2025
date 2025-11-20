@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { LockIcon, CheckCircleIcon, EyeSlashIcon, CpuIcon, ShieldCheckIcon } from './Icons';
-import Card from './Card';
-import Button from './Button';
+import { LockIcon, CheckCircleIcon, EyeSlashIcon, CpuIcon, ShieldCheckIcon } from './icons/Icons';
+import Card from './common/Card';
+import Button from './common/Button';
 
 interface SecurityModalProps {
   isOpen: boolean;
