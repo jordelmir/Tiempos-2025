@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor } from '../types';
+import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor, Transaction } from '../types';
 import Card from './common/Card';
 import Input from './common/Input';
 import Button from './common/Button';
@@ -25,27 +25,33 @@ import {
   ArrowTrendingUpIcon,
   CpuIcon,
   BoltIcon,
-  ClockIcon
+  ClockIcon,
+  CreditCardIcon,
+  ArrowTrendingDownIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
   user: User;
+  transactions: Transaction[];
   onPurchase: (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => void;
   dailyResults: DailyResult[];
   historyResults: HistoryResult[];
   nextDrawTime: string;
   isSyncing: boolean;
+  onClaimWinnings: (ticketId: string, amount: number, type: 'regular' | 'reventados') => void;
 }
 
 type NewTicket = Omit<Ticket, 'id' | 'purchaseDate'>;
 
 const ClientPanel: React.FC<ClientPanelProps> = ({ 
     user, 
+    transactions,
     onPurchase, 
     dailyResults, 
     historyResults, 
     nextDrawTime, 
-    isSyncing 
+    isSyncing,
+    onClaimWinnings
 }) => {
   const [number, setNumber] = useState('');
   const [amount, setAmount] = useState('');
@@ -136,9 +142,10 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
           if (todayTickets.length === 0 || dailyResults.length === 0) return;
 
-          let bestWin: {type: 'regular'|'reventados', amount: number, number: string, draw: string} | null = null;
+          // Filter only Pending tickets for claim check to avoid double processing
+          const pendingTickets = todayTickets.filter(t => t.status === 'pending');
 
-          todayTickets.forEach(ticket => {
+          pendingTickets.forEach(ticket => {
               const result = dailyResults.find(r => r.draw === ticket.draw && r.number !== null);
 
               if (result && result.number === ticket.number) {
@@ -154,37 +161,32 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                       }
                   }
 
-                  if (!bestWin || winAmount > bestWin.amount) {
-                      bestWin = { type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] };
-                  }
-              }
-          });
+                  // --- CLAIM PRIZE AUTOMATICALLY ---
+                  // This will update the DB. The 'status' will change to 'paid',
+                  // so this loop won't pick it up again on next render.
+                  onClaimWinnings(ticket.id, winAmount, type);
 
-          if (bestWin) {
-              const seenKey = `seen_win_${todayStr}_${bestWin.amount}`;
-              if (!sessionStorage.getItem(seenKey)) {
-                  setWinNotification(bestWin);
-                  sessionStorage.setItem(seenKey, 'true');
+                  // --- SHOW NOTIFICATION ---
+                  setWinNotification({ type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] });
                   
                   // --- TRIGGER EMAIL SERVICE ---
-                  // We don't await this to avoid blocking UI, it runs in background
                   sendWinnerNotification(
                       user.email, 
                       user.name, 
-                      bestWin.amount, 
-                      bestWin.number, 
-                      bestWin.draw, 
-                      bestWin.type === 'reventados'
+                      winAmount, 
+                      ticket.number, 
+                      DRAW_LABELS[ticket.draw], 
+                      type === 'reventados'
                   ).then(() => {
                       console.log("Email delivery confirmed via Agent.");
                   });
               }
-          }
+          });
       };
 
-      const timer = setTimeout(checkWinners, 1000); 
+      const timer = setTimeout(checkWinners, 2000); // slight delay to allow data settle
       return () => clearTimeout(timer);
-  }, [dailyResults, user.tickets, user.email, user.name]);
+  }, [dailyResults, user.tickets, user.email, user.name, onClaimWinnings]);
 
 
   const handleAddTicket = (e: React.FormEvent) => {
@@ -672,115 +674,166 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
            </div>
         </div>
 
-        {/* RIGHT COLUMN: Cart */}
-        <div className="lg:col-span-4 animate-fade-in-up" style={{animationDelay: '300ms'}}>
-            <div className="sticky top-24 space-y-6">
-                <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)] hover:shadow-[0_0_50px_rgba(79,70,229,0.2)] transition-shadow duration-500" noPadding>
-                    <div className="bg-brand-accent/10 p-6 border-b border-brand-border flex justify-between items-center">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                            <ShoppingCartIcon className="h-5 w-5 text-brand-accent"/> Tu Jugada
-                        </h3>
-                        <span className={`bg-brand-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg transition-transform ${cart.length > 0 ? 'scale-100' : 'scale-0'}`}>
-                            {cart.length} Items
-                        </span>
-                    </div>
-                    
-                    <div className="p-6">
-                        {cart.length > 0 ? (
-                            <div className="space-y-4">
-                                <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-                                    {cart.map((item, index) => (
-                                        <div key={index} className="bg-brand-tertiary/50 p-3 rounded-xl border border-brand-border flex justify-between items-center group hover:border-brand-accent/50 transition-all duration-300 hover:bg-brand-tertiary animate-fade-in-up">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-lg bg-brand-secondary flex flex-col items-center justify-center border border-brand-border shadow-inner">
-                                                    <span className="text-lg font-black text-white leading-none">{item.number}</span>
-                                                </div>
-                                                <div>
-                                                    <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">{DRAW_LABELS[item.draw]}</div>
-                                                    <div className="text-xs text-white font-bold">Regular: {formatCurrency(item.amount)}</div>
-                                                    {item.reventadosAmount && item.reventadosAmount > 0 && (
-                                                        <div className="text-[10px] text-red-400 font-bold flex items-center gap-1 animate-pulse">
-                                                            <FireIcon className="h-3 w-3"/> {formatCurrency(item.reventadosAmount)}
-                                                        </div>
-                                                    )}
-                                                </div>
+        {/* RIGHT COLUMN: Cart & History */}
+        <div className="lg:col-span-4 animate-fade-in-up space-y-6" style={{animationDelay: '300ms'}}>
+            
+            {/* CART WIDGET */}
+            <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)] hover:shadow-[0_0_50px_rgba(79,70,229,0.2)] transition-shadow duration-500" noPadding>
+                <div className="bg-brand-accent/10 p-6 border-b border-brand-border flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <ShoppingCartIcon className="h-5 w-5 text-brand-accent"/> Tu Jugada
+                    </h3>
+                    <span className={`bg-brand-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg transition-transform ${cart.length > 0 ? 'scale-100' : 'scale-0'}`}>
+                        {cart.length} Items
+                    </span>
+                </div>
+                
+                <div className="p-6">
+                    {cart.length > 0 ? (
+                        <div className="space-y-4">
+                            <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                                {cart.map((item, index) => (
+                                    <div key={index} className="bg-brand-tertiary/50 p-3 rounded-xl border border-brand-border flex justify-between items-center group hover:border-brand-accent/50 transition-all duration-300 hover:bg-brand-tertiary animate-fade-in-up">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-lg bg-brand-secondary flex flex-col items-center justify-center border border-brand-border shadow-inner">
+                                                <span className="text-lg font-black text-white leading-none">{item.number}</span>
                                             </div>
-                                            <button onClick={() => handleRemoveFromCart(index)} className="text-brand-text-secondary hover:text-red-500 transition-colors p-2 hover:bg-white/5 rounded-lg group-hover:scale-110">
-                                                <TrashIcon className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="border-t border-brand-border pt-4 mt-4">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <span className="text-brand-text-secondary text-sm">Total a Pagar</span>
-                                        <span className="text-2xl font-black text-brand-success">{formatCurrency(totalCost)}</span>
-                                    </div>
-                                    <Button 
-                                        onClick={handlePurchase} 
-                                        variant="success" 
-                                        className="w-full uppercase tracking-widest font-bold text-sm shadow-xl shadow-brand-success/20 hover:shadow-brand-success/40 transition-all hover:-translate-y-1"
-                                        disabled={totalCost > user.balance}
-                                    >
-                                        <div className="flex items-center justify-center gap-2">
-                                            <BoltIcon className="h-4 w-4" /> Confirmar Compra
-                                        </div>
-                                    </Button>
-                                    {totalCost > user.balance && (
-                                        <p className="text-center text-xs text-red-400 mt-2 font-bold animate-bounce">Saldo insuficiente</p>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="text-center py-12 opacity-50">
-                                <ShoppingCartIcon className="h-12 w-12 mx-auto mb-3 text-brand-text-secondary"/>
-                                <p className="text-sm text-brand-text-secondary">Tu carrito está vacío.</p>
-                            </div>
-                        )}
-                    </div>
-                </Card>
-
-                {/* Recent User Tickets Widget - SCROLLABLE 7 DAYS MAX */}
-                <Card className="bg-brand-secondary/30 hover:bg-brand-secondary/50 transition-colors duration-500">
-                    <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2">
-                        <TicketIcon className="h-4 w-4" /> Jugadas Recientes (7 Días)
-                    </h4>
-                    {recentTickets.length > 0 ? (
-                        <div className="max-h-[500px] overflow-y-auto custom-scrollbar pr-2 space-y-3">
-                            {recentTickets.map((t, idx) => (
-                                <div key={t.id} className="flex flex-col p-3 rounded-xl bg-brand-primary/50 border border-brand-border relative group hover:border-brand-accent/30 transition-all shadow-sm hover:shadow-lg hover:-translate-x-1 animate-fade-in-up" style={{animationDelay: `${idx * 50}ms`}}>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`text-2xl font-black ${t.reventadosAmount ? 'text-red-400' : 'text-white'}`}>{t.number}</span>
-                                            <div className="flex flex-col">
-                                                <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[t.draw]}</span>
-                                                <span className="text-[9px] text-brand-text-secondary">{formatTicketDate(t.purchaseDate)}</span>
+                                            <div>
+                                                <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">{DRAW_LABELS[item.draw]}</div>
+                                                <div className="text-xs text-white font-bold">Regular: {formatCurrency(item.amount)}</div>
+                                                {item.reventadosAmount && item.reventadosAmount > 0 && (
+                                                    <div className="text-[10px] text-red-400 font-bold flex items-center gap-1 animate-pulse">
+                                                        <FireIcon className="h-3 w-3"/> {formatCurrency(item.reventadosAmount)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <div className="font-bold text-white text-sm">{formatCurrency(t.amount)}</div>
-                                            {t.reventadosAmount && (
-                                                 <div className="text-[9px] font-bold text-red-400 flex items-center justify-end gap-1">
-                                                     <FireIcon className="h-3 w-3"/> +{formatCurrency(t.reventadosAmount)}
-                                                 </div>
-                                            )}
-                                        </div>
+                                        <button onClick={() => handleRemoveFromCart(index)} className="text-brand-text-secondary hover:text-red-500 transition-colors p-2 hover:bg-white/5 rounded-lg group-hover:scale-110">
+                                            <TrashIcon className="h-4 w-4" />
+                                        </button>
                                     </div>
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-10 transition-opacity">
-                                        {getDrawIcon(t.draw, "h-10 w-10")}
-                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="border-t border-brand-border pt-4 mt-4">
+                                <div className="flex justify-between items-center mb-4">
+                                    <span className="text-brand-text-secondary text-sm">Total a Pagar</span>
+                                    <span className="text-2xl font-black text-brand-success">{formatCurrency(totalCost)}</span>
                                 </div>
-                            ))}
+                                <Button 
+                                    onClick={handlePurchase} 
+                                    variant="success" 
+                                    className="w-full uppercase tracking-widest font-bold text-sm shadow-xl shadow-brand-success/20 hover:shadow-brand-success/40 transition-all hover:-translate-y-1"
+                                    disabled={totalCost > user.balance}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <BoltIcon className="h-4 w-4" /> Confirmar Compra
+                                    </div>
+                                </Button>
+                                {totalCost > user.balance && (
+                                    <p className="text-center text-xs text-red-400 mt-2 font-bold animate-bounce">Saldo insuficiente</p>
+                                )}
+                            </div>
                         </div>
                     ) : (
-                        <div className="text-center py-8 opacity-50">
-                            <TicketIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
-                            <p className="text-xs text-brand-text-secondary">No hay jugadas recientes.</p>
+                        <div className="text-center py-12 opacity-50">
+                            <ShoppingCartIcon className="h-12 w-12 mx-auto mb-3 text-brand-text-secondary"/>
+                            <p className="text-sm text-brand-text-secondary">Tu carrito está vacío.</p>
                         </div>
                     )}
-                </Card>
-            </div>
+                </div>
+            </Card>
+
+            {/* TRANSACTIONS WIDGET (MOVEMENTS) */}
+            <Card className="bg-brand-secondary/30 hover:bg-brand-secondary/50 transition-colors duration-500 max-h-[300px] flex flex-col">
+                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 shrink-0">
+                    <CreditCardIcon className="h-4 w-4" /> Movimientos Recientes
+                </h4>
+                {transactions.length > 0 ? (
+                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-2">
+                        {transactions.slice(0, 20).map((tx) => (
+                            <div key={tx.id} className="flex items-center justify-between p-2 rounded-lg bg-brand-primary/50 border border-brand-border hover:bg-brand-tertiary transition-colors">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-1.5 rounded-full ${
+                                        tx.type === 'deposit' ? 'bg-green-900/30 text-green-400' : 
+                                        tx.type === 'withdraw' ? 'bg-red-900/30 text-red-400' : 
+                                        tx.type === 'winnings' ? 'bg-yellow-900/30 text-yellow-400' :
+                                        'bg-blue-900/30 text-blue-400'
+                                    }`}>
+                                        {tx.type === 'deposit' && <ArrowTrendingUpIcon className="h-3 w-3"/>}
+                                        {tx.type === 'withdraw' && <ArrowTrendingDownIcon className="h-3 w-3"/>}
+                                        {tx.type === 'purchase' && <TicketIcon className="h-3 w-3"/>}
+                                        {tx.type === 'winnings' && <FireIcon className="h-3 w-3"/>}
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] font-bold text-white uppercase">
+                                            {tx.type === 'deposit' ? 'Recarga' : 
+                                             tx.type === 'withdraw' ? 'Retiro' : 
+                                             tx.type === 'winnings' ? 'Premio' : 'Compra'}
+                                        </div>
+                                        <div className="text-[9px] text-brand-text-secondary">{new Date(tx.date).toLocaleDateString()}</div>
+                                    </div>
+                                </div>
+                                <div className={`text-xs font-mono font-bold ${
+                                    tx.type === 'withdraw' || tx.type === 'purchase' ? 'text-brand-text-secondary' : 'text-brand-success'
+                                }`}>
+                                    {(tx.type === 'withdraw' || tx.type === 'purchase') ? '-' : '+'}{formatCurrency(tx.amount)}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 opacity-50 flex-grow flex flex-col items-center justify-center">
+                        <CreditCardIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
+                        <p className="text-xs text-brand-text-secondary">Sin movimientos.</p>
+                    </div>
+                )}
+            </Card>
+
+            {/* Recent User Tickets Widget - SCROLLABLE 7 DAYS MAX */}
+            <Card className="bg-brand-secondary/30 hover:bg-brand-secondary/50 transition-colors duration-500">
+                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2">
+                    <TicketIcon className="h-4 w-4" /> Jugadas Recientes (7 Días)
+                </h4>
+                {recentTickets.length > 0 ? (
+                    <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                        {recentTickets.map((t, idx) => (
+                            <div key={t.id} className="flex flex-col p-3 rounded-xl bg-brand-primary/50 border border-brand-border relative group hover:border-brand-accent/30 transition-all shadow-sm hover:shadow-lg hover:-translate-x-1 animate-fade-in-up" style={{animationDelay: `${idx * 50}ms`}}>
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-2xl font-black ${t.reventadosAmount ? 'text-red-400' : 'text-white'}`}>{t.number}</span>
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[t.draw]}</span>
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-[9px] text-brand-text-secondary">{formatTicketDate(t.purchaseDate)}</span>
+                                                <span className={`text-[8px] font-bold uppercase px-1.5 rounded ${t.status === 'paid' ? 'bg-green-900/40 text-green-400' : t.status === 'pending' ? 'bg-yellow-900/20 text-yellow-500' : 'bg-red-900/20 text-red-500'}`}>
+                                                    {t.status === 'paid' ? 'PAGADO' : t.status === 'pending' ? 'PENDIENTE' : 'PERDIDO'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-white text-sm">{formatCurrency(t.amount)}</div>
+                                        {t.reventadosAmount && (
+                                                <div className="text-[9px] font-bold text-red-400 flex items-center justify-end gap-1">
+                                                    <FireIcon className="h-3 w-3"/> +{formatCurrency(t.reventadosAmount)}
+                                                </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-10 transition-opacity">
+                                    {getDrawIcon(t.draw, "h-10 w-10")}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 opacity-50">
+                        <TicketIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
+                        <p className="text-xs text-brand-text-secondary">No hay jugadas recientes.</p>
+                    </div>
+                )}
+            </Card>
         </div>
       </div>
     </div>

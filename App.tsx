@@ -87,88 +87,41 @@ const LoginSequence = ({ onComplete }: { onComplete: () => void }) => {
 
 // --- SQL FIX COMPONENT ---
 const DatabaseFixModal = () => {
-    const sqlCode = `-- SCRIPT MAESTRO v7.0 - SOLUCIÓN DEFINITIVA RECURSIVIDAD
--- Ejecuta este script en el Editor SQL de Supabase para reparar el error "infinite recursion".
+    const sqlCode = `-- SCRIPT MAESTRO v8.0 - ESTRUCTURA & PERMISOS COMPLETOS
+-- Ejecuta este script en el Editor SQL de Supabase para reparar tablas y permisos.
 
--- 1. LIMPIEZA COMPLETA DE POLÍTICAS (Para evitar conflictos)
-DROP POLICY IF EXISTS "profiles_select" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_delete" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_view_self" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_policy" ON public.profiles;
-
-DROP POLICY IF EXISTS "tickets_select" ON public.tickets;
-DROP POLICY IF EXISTS "tickets_insert" ON public.tickets;
-
-DROP POLICY IF EXISTS "trans_select" ON public.transactions;
-DROP POLICY IF EXISTS "trans_insert" ON public.transactions;
-
--- 2. REPARACIÓN DE FUNCIÓN ADMIN (CRÍTICO: SECURITY DEFINER)
--- Esto soluciona el bucle infinito permitiendo que la función lea 'profiles'
--- con privilegios de sistema, saltándose las políticas RLS.
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER -- <<< CLAVE PARA EVITAR RECURSIVIDAD
-SET search_path = public
-AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = auth.uid()
-    AND role = 'admin'
-  );
-END;
-$$;
-
--- 3. APLICAR POLÍTICAS SEGURAS
-
--- PROFILES
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "profiles_select" ON public.profiles
-FOR SELECT USING (
-  auth.uid() = id OR public.is_admin()
+-- 1. CREACIÓN DE TABLAS (SI NO EXISTEN)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT,
+  name TEXT,
+  role TEXT DEFAULT 'client',
+  balance DECIMAL DEFAULT 0,
+  phone TEXT,
+  cedula TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE POLICY "profiles_update" ON public.profiles
-FOR UPDATE USING (
-  public.is_admin()
+CREATE TABLE IF NOT EXISTS public.tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  number TEXT NOT NULL,
+  amount DECIMAL NOT NULL,
+  reventados_amount DECIMAL DEFAULT 0,
+  draw_type TEXT NOT NULL,
+  status TEXT DEFAULT 'pending', -- pending, paid, lost
+  purchase_date TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE POLICY "profiles_insert" ON public.profiles
-FOR INSERT WITH CHECK (
-  auth.uid() = id
+CREATE TABLE IF NOT EXISTS public.transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL, -- deposit, withdraw, purchase, winnings
+  amount DECIMAL NOT NULL,
+  details TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- TICKETS
-ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "tickets_select" ON public.tickets
-FOR SELECT USING (
-  auth.uid() = user_id OR public.is_admin()
-);
-
-CREATE POLICY "tickets_insert" ON public.tickets
-FOR INSERT WITH CHECK (
-  auth.uid() = user_id
-);
-
--- TRANSACTIONS
-ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "trans_select" ON public.transactions
-FOR SELECT USING (
-  auth.uid() = user_id OR public.is_admin()
-);
-
-CREATE POLICY "trans_insert" ON public.transactions
-FOR INSERT WITH CHECK (
-  auth.uid() = user_id OR public.is_admin()
-);
-
--- DAILY RESULTS
 CREATE TABLE IF NOT EXISTS public.daily_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL,
@@ -180,17 +133,61 @@ CREATE TABLE IF NOT EXISTS public.daily_results (
   UNIQUE(date, draw_type)
 );
 
+-- 2. LIMPIEZA DE POLÍTICAS
+DROP POLICY IF EXISTS "profiles_select" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
+
+DROP POLICY IF EXISTS "tickets_select" ON public.tickets;
+DROP POLICY IF EXISTS "tickets_insert" ON public.tickets;
+DROP POLICY IF EXISTS "tickets_update" ON public.tickets;
+
+DROP POLICY IF EXISTS "trans_select" ON public.transactions;
+DROP POLICY IF EXISTS "trans_insert" ON public.transactions;
+
+-- 3. FUNCIÓN ADMIN (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid()
+    AND role = 'admin'
+  );
+END;
+$$;
+
+-- 4. APLICAR POLÍTICAS SEGURAS
+
+-- PROFILES
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "profiles_select" ON public.profiles FOR SELECT USING (auth.uid() = id OR public.is_admin());
+CREATE POLICY "profiles_update" ON public.profiles FOR UPDATE USING (public.is_admin() OR auth.uid() = id); -- Allow self update for now or admin
+CREATE POLICY "profiles_insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- TICKETS
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tickets_select" ON public.tickets FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
+CREATE POLICY "tickets_insert" ON public.tickets FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "tickets_update" ON public.tickets FOR UPDATE USING (public.is_admin() OR auth.uid() = user_id); -- Allow updates for status change
+
+-- TRANSACTIONS
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "trans_select" ON public.transactions FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
+CREATE POLICY "trans_insert" ON public.transactions FOR INSERT WITH CHECK (auth.uid() = user_id OR public.is_admin());
+
+-- DAILY RESULTS
 ALTER TABLE public.daily_results ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "results_select" ON public.daily_results;
 DROP POLICY IF EXISTS "results_write" ON public.daily_results;
+CREATE POLICY "results_select" ON public.daily_results FOR SELECT USING (true);
+CREATE POLICY "results_write" ON public.daily_results FOR ALL USING (public.is_admin());
 
-CREATE POLICY "results_select" ON public.daily_results
-FOR SELECT USING (true);
-
-CREATE POLICY "results_write" ON public.daily_results
-FOR ALL USING (public.is_admin());
-
--- 4. TRIGGER DE USUARIO (SECURITY DEFINER)
+-- 5. TRIGGER DE USUARIO
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -212,22 +209,16 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-AFTER INSERT ON auth.users
-FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 5. PUBLICACIÓN REALTIME
+-- 6. REALTIME
 DO $$
 DECLARE
   t TEXT;
 BEGIN
   FOR t IN SELECT 'profiles' UNION SELECT 'tickets' UNION SELECT 'transactions' UNION SELECT 'daily_results'
   LOOP
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_publication_tables
-      WHERE pubname='supabase_realtime'
-      AND tablename=t
-    ) THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename=t) THEN
       EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I;', t);
     END IF;
   END LOOP;
@@ -236,7 +227,7 @@ END $$;
 
     const copyToClipboard = () => {
         navigator.clipboard.writeText(sqlCode);
-        alert("Script SQL Maestro v7.0 copiado. Ejecútalo en Supabase.");
+        alert("Script SQL Maestro v8.0 copiado. Ejecútalo en Supabase.");
     };
 
     return (
@@ -248,14 +239,14 @@ END $$;
                     <ExclamationTriangleIcon className="h-12 w-12 text-red-500" />
                     <div>
                         <h2 className="text-2xl font-black text-white uppercase">Reparación de Base de Datos</h2>
-                        <p className="text-red-400 font-mono text-sm">ERROR CRÍTICO: RECURSIVIDAD EN POLÍTICAS (RLS)</p>
+                        <p className="text-red-400 font-mono text-sm">ERROR CRÍTICO: TABLAS FALTANTES O PERMISOS</p>
                     </div>
                 </div>
                 
                 <p className="text-brand-text-secondary mb-4 text-sm shrink-0">
-                    Se ha detectado un bucle infinito. Esto ocurre cuando <code>is_admin()</code> es <b>SECURITY INVOKER</b> y la política se llama a sí misma.
+                    Si los movimientos no se reflejan, es probable que falte la tabla <code>transactions</code> o los permisos.
                     <br/>
-                    <b>Solución:</b> Este script convierte la función a <code>SECURITY DEFINER</code>, permitiendo que lea el rol sin activar RLS de nuevo.
+                    <b>Solución:</b> Ejecute este script v8.0 que crea todas las tablas necesarias y corrige los permisos.
                 </p>
                 
                 <div className="relative bg-black p-4 rounded-lg border border-brand-border mb-6 group flex-grow overflow-hidden flex flex-col">
@@ -263,7 +254,7 @@ END $$;
                         onClick={copyToClipboard}
                         className="absolute top-4 right-4 bg-brand-accent hover:bg-brand-accent-hover text-white px-4 py-2 rounded shadow-lg text-xs font-bold flex items-center gap-2 transition-all z-10"
                     >
-                        <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT v7.0
+                        <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT v8.0
                     </button>
                     <pre className="text-[10px] md:text-xs text-green-400 font-mono overflow-y-auto custom-scrollbar whitespace-pre flex-grow p-2">
                         {sqlCode}
@@ -326,6 +317,12 @@ const App: React.FC = () => {
   
   const [view, setView] = useState<View>('client');
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+
+  // Filter transactions for the current user (Client View)
+  const userTransactions = useMemo(() => {
+      if (!currentUser) return [];
+      return transactions.filter(t => t.userId === currentUser.id);
+  }, [transactions, currentUser]);
 
   // Game State
   const [jpsResults, setJpsResults] = useState<DailyResult[]>([]); 
@@ -548,6 +545,57 @@ const App: React.FC = () => {
       }
   };
 
+  // --- WINNINGS HANDLER (NEW) ---
+  const handleClaimWinnings = async (ticketId: string, amount: number, winType: 'regular' | 'reventados') => {
+      if (!currentUserId) return;
+
+      // 1. Atomic Check & Set Status (Prevent Double Pay)
+      // We try to update the ticket from 'pending' to 'paid'. 
+      // If the ticket is already 'paid', this update will return 0 rows, and we stop.
+      const { data, error } = await supabase
+          .from('tickets')
+          .update({ status: 'paid' })
+          .eq('id', ticketId)
+          .eq('status', 'pending')
+          .select();
+
+      if (error) {
+          console.error("Error claiming prize:", error);
+          return;
+      }
+
+      if (!data || data.length === 0) {
+          console.log("Ticket already processed or invalid.");
+          return; // Exit if no row was updated (idempotency)
+      }
+
+      const ticketNumber = data[0].number;
+
+      // 2. Update Balance
+      const user = users.find(u => u.id === currentUserId);
+      if(!user) return;
+      
+      const { error: balError } = await supabase.from('profiles').update({
+          balance: user.balance + amount
+      }).eq('id', currentUserId);
+
+      if (balError) console.error("Balance Update Failed (Winnings)", balError);
+
+      // 3. Create 'Winnings' Transaction
+      const { error: txError } = await supabase.from('transactions').insert({
+          user_id: currentUserId,
+          type: 'winnings',
+          amount: amount,
+          details: `Premio ${winType === 'reventados' ? 'Reventado' : 'Regular'} - Ticket #${ticketNumber}`
+      });
+
+      if (txError) console.error("Transaction Log Failed (Winnings)", txError);
+
+      console.log(`Prize claimed: ${amount}`);
+      refresh();
+  };
+
+
   const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null) => {
       const todayStr = getSmartLocalISO();
       console.log(`[ADMIN UPDATE] Locking result for ${todayStr} - ${draw}: ${number}`);
@@ -605,7 +653,7 @@ const App: React.FC = () => {
 
   // --- CRITICAL ERROR GUARD ---
   // Detect infinite recursion specifically or general unexpected recursion
-  if (supabaseError && (supabaseError.toLowerCase().includes("infinite recursion") || supabaseError.toLowerCase().includes("recursion") || supabaseError.toLowerCase().includes("policy"))) {
+  if (supabaseError && (supabaseError.toLowerCase().includes("infinite recursion") || supabaseError.toLowerCase().includes("recursion") || supabaseError.toLowerCase().includes("policy") || supabaseError.toLowerCase().includes("relation"))) {
       return <DatabaseFixModal />;
   }
 
@@ -648,11 +696,13 @@ const App: React.FC = () => {
                     ) : (
                     <ClientPanel 
                         user={currentUser} 
+                        transactions={userTransactions}
                         onPurchase={handlePurchase} 
                         dailyResults={effectiveDailyResults} 
                         historyResults={historyResults}
                         nextDrawTime={nextDrawTime}
                         isSyncing={isSyncing}
+                        onClaimWinnings={handleClaimWinnings}
                     />
                     )}
                 </main>

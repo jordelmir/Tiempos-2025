@@ -189,6 +189,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           } else if (tx.type === 'withdraw') {
               grouped[key].cashOut += tx.amount;
           }
+          // Winnings are internal balance transfers in this simple model, 
+          // but could be tracked as liability if needed.
           
           grouped[key].txs.push(tx);
       });
@@ -969,15 +971,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                   {selectedWeekStats.txs.map((tx, idx) => (
                                       <div key={tx.id} className="p-3 hover:bg-brand-secondary/50 transition-colors group flex items-center justify-between animate-fade-in-up">
                                           <div className="flex items-center gap-3">
-                                              <div className={`w-1 h-10 rounded-full ${tx.type === 'deposit' ? 'bg-brand-success' : tx.type === 'withdraw' ? 'bg-brand-danger' : 'bg-brand-accent'}`}></div>
+                                              <div className={`w-1 h-10 rounded-full ${tx.type === 'deposit' ? 'bg-brand-success' : tx.type === 'withdraw' ? 'bg-brand-danger' : tx.type === 'winnings' ? 'bg-yellow-500' : 'bg-brand-accent'}`}></div>
                                               <div>
-                                                  <div className="flex items-center gap-2"><span className={`text-[10px] font-black uppercase px-1.5 rounded-sm ${tx.type === 'deposit' ? 'bg-green-900/30 text-brand-success' : tx.type === 'withdraw' ? 'bg-red-900/30 text-brand-danger' : 'bg-indigo-900/30 text-brand-accent'}`}>{tx.type === 'deposit' ? 'IN' : tx.type === 'withdraw' ? 'OUT' : 'INT'}</span><span className="text-xs text-white font-bold font-mono">{tx.userName}</span></div>
+                                                  <div className="flex items-center gap-2"><span className={`text-[10px] font-black uppercase px-1.5 rounded-sm ${tx.type === 'deposit' ? 'bg-green-900/30 text-brand-success' : tx.type === 'withdraw' ? 'bg-red-900/30 text-brand-danger' : tx.type === 'winnings' ? 'bg-yellow-900/30 text-yellow-500' : 'bg-indigo-900/30 text-brand-accent'}`}>{tx.type === 'deposit' ? 'IN' : tx.type === 'withdraw' ? 'OUT' : tx.type === 'winnings' ? 'WIN' : 'INT'}</span><span className="text-xs text-white font-bold font-mono">{tx.userName}</span></div>
                                                   <div className="text-[9px] text-brand-text-secondary font-mono mt-0.5">{new Date(tx.date).toLocaleString()} • ID: {tx.id.split('_')[1]}</div>
                                               </div>
                                           </div>
                                           <div className="text-right">
-                                              <div className={`font-mono font-bold text-sm ${tx.type === 'deposit' ? 'text-brand-success' : tx.type === 'withdraw' ? 'text-brand-danger' : 'text-brand-text-secondary'}`}>{tx.type === 'withdraw' ? '-' : '+'}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(tx.amount)}</div>
-                                              <div className="text-[8px] text-brand-text-secondary uppercase opacity-60">{tx.type === 'purchase' ? 'Volumen' : 'Efectivo'}</div>
+                                              <div className={`font-mono font-bold text-sm ${tx.type === 'deposit' || tx.type === 'winnings' ? 'text-brand-success' : tx.type === 'withdraw' ? 'text-brand-danger' : 'text-brand-text-secondary'}`}>{tx.type === 'withdraw' ? '-' : '+'}{new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(tx.amount)}</div>
+                                              <div className="text-[8px] text-brand-text-secondary uppercase opacity-60">{tx.type === 'purchase' ? 'Volumen' : tx.type === 'winnings' ? 'Premio' : 'Efectivo'}</div>
                                           </div>
                                       </div>
                                   ))}
