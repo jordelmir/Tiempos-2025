@@ -6,6 +6,7 @@ import Input from './common/Input';
 import Button from './common/Button';
 import WinnerModal from './WinnerModal';
 import ActionModal, { ActionType } from './ActionModal';
+import { sendWinnerNotification } from '../utils/emailService';
 import { 
   PlusIcon, 
   TrashIcon, 
@@ -63,7 +64,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
   });
 
   // Win Notification State
-  const [winNotification, setWinNotification] = useState<{type: 'regular'|'reventados', amount: number, number: string} | null>(null);
+  const [winNotification, setWinNotification] = useState<{type: 'regular'|'reventados', amount: number, number: string, draw: string} | null>(null);
 
   const totalCost = cart.reduce((sum, item) => sum + item.amount + (item.reventadosAmount || 0), 0);
 
@@ -128,14 +129,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
   // --- WINNER DETECTION SYSTEM ---
   useEffect(() => {
-      const checkWinners = () => {
+      const checkWinners = async () => {
           const todayStr = new Date().toLocaleDateString('es-CR');
           const normalize = (d: Date) => d.toLocaleDateString('es-CR');
           const todayTickets = user.tickets.filter(t => normalize(new Date(t.purchaseDate)) === normalize(new Date()));
 
           if (todayTickets.length === 0 || dailyResults.length === 0) return;
 
-          let bestWin: {type: 'regular'|'reventados', amount: number, number: string} | null = null;
+          let bestWin: {type: 'regular'|'reventados', amount: number, number: string, draw: string} | null = null;
 
           todayTickets.forEach(ticket => {
               const result = dailyResults.find(r => r.draw === ticket.draw && r.number !== null);
@@ -154,7 +155,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                   }
 
                   if (!bestWin || winAmount > bestWin.amount) {
-                      bestWin = { type, amount: winAmount, number: ticket.number };
+                      bestWin = { type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] };
                   }
               }
           });
@@ -164,13 +165,26 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
               if (!sessionStorage.getItem(seenKey)) {
                   setWinNotification(bestWin);
                   sessionStorage.setItem(seenKey, 'true');
+                  
+                  // --- TRIGGER EMAIL SERVICE ---
+                  // We don't await this to avoid blocking UI, it runs in background
+                  sendWinnerNotification(
+                      user.email, 
+                      user.name, 
+                      bestWin.amount, 
+                      bestWin.number, 
+                      bestWin.draw, 
+                      bestWin.type === 'reventados'
+                  ).then(() => {
+                      console.log("Email delivery confirmed via Agent.");
+                  });
               }
           }
       };
 
       const timer = setTimeout(checkWinners, 1000); 
       return () => clearTimeout(timer);
-  }, [dailyResults, user.tickets]);
+  }, [dailyResults, user.tickets, user.email, user.name]);
 
 
   const handleAddTicket = (e: React.FormEvent) => {
@@ -264,6 +278,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
             winType={winNotification.type} 
             amount={winNotification.amount}
             ticketNumber={winNotification.number}
+            userEmail={user.email}
             onClose={() => setWinNotification(null)}
           />
       )}

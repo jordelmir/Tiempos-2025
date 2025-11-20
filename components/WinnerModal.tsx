@@ -1,17 +1,19 @@
 
 import React, { useEffect, useState } from 'react';
 import Button from './common/Button';
-import { FireIcon, TicketIcon, CheckCircleIcon } from './icons/Icons';
+import { FireIcon, TicketIcon, CheckCircleIcon, MailIcon } from './icons/Icons';
 
 interface WinnerModalProps {
   winType: 'regular' | 'reventados' | null;
   amount: number;
   ticketNumber: string;
+  userEmail: string;
   onClose: () => void;
 }
 
-const WinnerModal: React.FC<WinnerModalProps> = ({ winType, amount, ticketNumber, onClose }) => {
+const WinnerModal: React.FC<WinnerModalProps> = ({ winType, amount, ticketNumber, userEmail, onClose }) => {
   const [show, setShow] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<'sending' | 'sent'>('sending');
   
   // Particle system state
   const [particles, setParticles] = useState<{id: number, x: number, y: number, color: string, size: number}[]>([]);
@@ -19,6 +21,13 @@ const WinnerModal: React.FC<WinnerModalProps> = ({ winType, amount, ticketNumber
   useEffect(() => {
     if (winType) {
       setShow(true);
+      setEmailStatus('sending');
+      
+      // Simulate email dispatch confirmation lag
+      setTimeout(() => {
+          setEmailStatus('sent');
+      }, 1200);
+
       // Generate particles
       const newParticles = Array.from({ length: 50 }).map((_, i) => ({
         id: i,
@@ -109,11 +118,32 @@ const WinnerModal: React.FC<WinnerModalProps> = ({ winType, amount, ticketNumber
               </div>
 
               {/* Prize Display */}
-              <div className={`relative z-10 py-4 px-6 rounded-xl mb-8 border ${isReventados ? 'bg-gradient-to-r from-red-900/50 to-black border-red-500/50' : 'bg-brand-tertiary border-brand-border'}`}>
+              <div className={`relative z-10 py-4 px-6 rounded-xl mb-6 border ${isReventados ? 'bg-gradient-to-r from-red-900/50 to-black border-red-500/50' : 'bg-brand-tertiary border-brand-border'}`}>
                    <p className="text-xs font-bold text-brand-text-secondary uppercase mb-1">Premio Total Acreditado</p>
                    <p className={`text-4xl md:text-5xl font-mono font-black ${isReventados ? 'text-yellow-400' : 'text-brand-success'}`}>
                        {formatCurrency(amount)}
                    </p>
+              </div>
+
+              {/* --- EMAIL SENT NOTIFICATION --- */}
+              <div className="relative z-10 mb-6 flex justify-center">
+                  <div className={`inline-flex items-center gap-3 px-4 py-2 rounded-full border transition-all duration-500 ${emailStatus === 'sent' ? 'bg-brand-success/10 border-brand-success/30 text-brand-success' : 'bg-brand-tertiary border-brand-border text-brand-text-secondary'}`}>
+                      <div className="relative">
+                          <MailIcon className="h-4 w-4" />
+                          {emailStatus === 'sending' && (
+                              <span className="absolute -top-1 -right-1 w-2 h-2 bg-brand-accent rounded-full animate-ping"></span>
+                          )}
+                      </div>
+                      <div className="text-left">
+                          <p className="text-[10px] font-bold uppercase tracking-wider">
+                              {emailStatus === 'sent' ? 'Comprobante Digital Enviado' : 'Generando Certificado...'}
+                          </p>
+                          {emailStatus === 'sent' && (
+                              <p className="text-[9px] opacity-70 lowercase font-mono">{userEmail}</p>
+                          )}
+                      </div>
+                      {emailStatus === 'sent' && <CheckCircleIcon className="h-4 w-4 animate-bounce-in" />}
+                  </div>
               </div>
 
               {/* Footer Button */}

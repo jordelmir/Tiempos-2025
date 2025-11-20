@@ -6,7 +6,7 @@ import {
   LockIcon, 
   MailIcon, 
   EyeIcon, 
-  EyeSlashIcon,
+  EyeSlashIcon, 
   PhoneIcon,
   CheckCircleIcon,
   ShieldCheckIcon,
@@ -20,8 +20,8 @@ import type { User } from '../types';
 import { analyzePasswordStrength, type PasswordStrength } from '../utils/security';
 
 interface AuthScreenProps {
-  onLogin: (email: string, password: string, role: 'admin' | 'client') => void;
-  onRegister: (userData: Partial<User>, role: 'admin' | 'client') => void;
+  onLogin: (email: string, password: string, role: 'admin' | 'client') => Promise<{ error: any; data: any }>;
+  onRegister: (userData: Partial<User>, role: 'admin' | 'client') => Promise<{ error: any; data: any }>;
   onVerifyIdentity?: (email: string, phone: string) => boolean;
   onVerifyCode?: (code: string) => boolean;
   onResetPassword?: (email: string, newPassword: string) => void;
@@ -102,12 +102,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
       }
   }
 
-  // Wrapper for Submit with Cinematic Delay
+  // Wrapper for Submit with Real Validation
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Basic Validation before animation
+    // Basic Input Validation
     if (view === 'login') {
         if (!email || !password) {
             setError('Por favor complete todos los campos.');
@@ -124,44 +124,57 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
         }
     }
 
-    // Start Cinematic Sequence
+    // 1. Start Processing Animation
     setAuthStatus('processing');
 
-    // Simulate Network/Crypto Check Delay (1.5s)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Try Login logic (Mock validation check)
-    // Note: In a real app, onLogin would return a promise. 
-    // Here we assume if it doesn't throw immediately in the parent, it's good, 
-    // but since we can't know the result without calling it, we call it AFTER animation success for visual flow,
-    // OR we need a way to know if login failed to revert state.
-    // For this visual upgrade, we assume success to show the animation, 
-    // if the parent logic fails (e.g. bad password), we need to handle that. 
-    // To properly fix this without changing the parent signature too much:
-    // We will create a local valid check logic or wrap the prop.
-    // NOTE: Since the prompt asks for visuals when "successfully logging in", we will assume positive flow first.
-    
-    // Important: We only transition to 'success' if we are reasonably sure.
-    // But since actual validation happens in parent `onLogin` (synchronously in this mock app),
-    // let's do a pre-check if possible, or just proceed.
-    
-    // Check failure condition for demo consistency:
-    // (Duplicate logic from App.tsx strictly for UI feedback before calling parent)
-    // Real implementation would have async onLogin returning boolean.
-    
-    setAuthStatus('success');
-
-    // Allow Success Animation to play (1.5s) before unmounting/redirecting
-    setTimeout(() => {
+    try {
+        let result;
+        
+        // 2. Call Actual Supabase Function (Await Result)
         if (view === 'login') {
-            onLogin(email, password, role);
+            result = await onLogin(email, password, role);
         } else {
-            onRegister({ name, email, phone, password, balance: 0, tickets: [] }, role);
+            result = await onRegister({ name, email, phone, password, balance: 0, tickets: [] }, role);
         }
-        // If login fails in parent, component might re-render. 
-        // Reset status if we are still mounted after timeout (implies failure usually, but in this architecture parent alerts).
-        setTimeout(() => setAuthStatus('idle'), 500);
-    }, 1200);
+
+        // 3. Check Result Logic
+        if (result.error) {
+            // FAILED: Stop animation, show error
+            setAuthStatus('idle');
+            
+            // Translate common Supabase errors
+            let msg = result.error.message;
+            if (msg.includes('Email not confirmed')) {
+                msg = 'Cuenta antigua pendiente de verificación. Si acaba de desactivar la opción en Supabase, borre este usuario del panel y regístrese de nuevo.';
+            } else if (msg.includes('Invalid login credentials')) {
+                msg = 'Credenciales incorrectas. Verifique su correo y contraseña.';
+            } else if (msg.includes('User already registered')) {
+                msg = 'Este correo ya está registrado. Intente iniciar sesión.';
+            } else if (msg.includes('Password should be')) {
+                msg = 'La contraseña no cumple con los requisitos de seguridad.';
+            }
+            
+            setError(msg);
+        } else if (result.data?.session) {
+            // SUCCESS: Session Established
+            // The App component will detect the session and unmount this screen.
+            // We keep the "Access Granted" animation until that happens.
+            setAuthStatus('success');
+        } else if (result.data?.user && !result.data?.session) {
+            // SUCCESS BUT NO SESSION: Email Verification Required (Supabase default)
+            // Do NOT show "Access Granted" spinner because it will never unmount.
+            setAuthStatus('idle');
+            setError('Registro exitoso. Se ha enviado un enlace de confirmación a su correo. Debe verificarlo para entrar.');
+        } else {
+            // Fallback for unknown states
+            setAuthStatus('idle');
+            setError('Estado desconocido. Intente iniciar sesión nuevamente.');
+        }
+
+    } catch (err) {
+        setAuthStatus('idle');
+        setError("Error de conexión. Intente nuevamente.");
+    }
   };
 
   // --- RECOVERY HANDLERS ---
