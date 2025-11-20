@@ -8,6 +8,7 @@ const defaultHash = hashPasswordSync('123456');
 export const mockUsers: User[] = [
   {
     id: 'usr_1',
+    cedula: '112345678',
     name: 'Elena Rodríguez',
     email: 'elena.r@example.com',
     password: defaultHash,
@@ -21,6 +22,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'usr_2',
+    cedula: '223456789',
     name: 'Carlos Vargas',
     email: 'carlos.v@example.com',
     password: defaultHash,
@@ -34,6 +36,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'usr_3',
+    cedula: '334567890',
     name: 'Ana Mora',
     email: 'ana.m@example.com',
     password: defaultHash,

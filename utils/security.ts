@@ -34,6 +34,73 @@ export const hashPasswordSync = (password: string): string => {
     return simpleHash(password + "SALT_V1"); 
 };
 
+// --- PASSWORD STRENGTH COACHING ---
+
+export interface PasswordStrength {
+    score: number; // 0 to 4
+    label: string;
+    color: string;
+    feedback: string;
+    isStrongEnough: boolean;
+}
+
+export const analyzePasswordStrength = (password: string): PasswordStrength => {
+    if (!password) return { score: 0, label: '', color: '', feedback: 'Ingrese una contraseña', isStrongEnough: false };
+
+    let score = 0;
+    
+    // 1. Length Check
+    if (password.length >= 6) score++;
+    if (password.length >= 10) score++;
+
+    // 2. Complexity Checks
+    const hasLower = /[a-z]/.test(password);
+    const hasUpper = /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSymbol = /[^a-zA-Z0-9]/.test(password);
+
+    if (hasLower && hasUpper) score++;
+    if (hasNumber) score++;
+    if (hasSymbol) score++;
+
+    // Normalize score to 0-4 cap
+    if (score > 4) score = 4;
+
+    // Determine Feedback (Specific Coaching)
+    let feedback = "";
+    
+    if (password.length < 6) {
+        feedback = "Faltan caracteres (mínimo 6)";
+    } else if (!hasLower && !hasUpper) {
+        feedback = "Agregue mayúsculas y minúsculas";
+    } else if (!hasNumber) {
+        feedback = "Agregue al menos un número";
+    } else if (!hasUpper) {
+        feedback = "Falta una letra Mayúscula";
+    } else if (!hasSymbol) {
+        feedback = "Tip: Agregue un símbolo ($, #, @)";
+    } else {
+        feedback = "¡Excelente seguridad!";
+    }
+
+    // Configuration based on score
+    const config = [
+        { label: 'Muy Débil', color: 'bg-red-600', isStrongEnough: false },     // 0
+        { label: 'Débil', color: 'bg-red-400', isStrongEnough: false },     // 1
+        { label: 'Mejorable', color: 'bg-yellow-500', isStrongEnough: true }, // 2
+        { label: 'Buena', color: 'bg-blue-400', isStrongEnough: true },     // 3
+        { label: 'Excelente', color: 'bg-green-500', isStrongEnough: true }    // 4
+    ];
+
+    return {
+        score,
+        label: config[score].label,
+        color: config[score].color,
+        feedback,
+        isStrongEnough: config[score].isStrongEnough
+    };
+};
+
 // --- ENCRYPTION ENGINE (Simulation of AES for LocalStorage) ---
 // In a production environment, we would use window.crypto.subtle.
 // For this architecture, we use a Base64 + Salt + XOR rotation obfuscator

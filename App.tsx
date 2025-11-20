@@ -16,9 +16,10 @@ type View = 'admin' | 'client';
 // --- PERSISTENCE HELPERS WITH SECURITY ---
 
 const STORAGE_KEYS = {
-  USERS: 'tiempospro_db_users_v4', // Version Bump for AdminID
+  USERS: 'tiempospro_db_users_v4', 
   TRANSACTIONS: 'tiempospro_db_transactions_v2',
-  SESSION_ID: 'tiempospro_session_id_v2'
+  SESSION_ID: 'tiempospro_session_id_v2',
+  HISTORY: 'tiempospro_db_history_real_v1' // New Key for Real History
 };
 
 // Helper to restore Date objects from JSON strings
@@ -78,7 +79,9 @@ const App: React.FC = () => {
 
   // Game Data State
   const [dailyResults, setDailyResults] = useState<DailyResult[]>([]);
-  const [historyResults, setHistoryResults] = useState<HistoryResult[]>([]);
+  // Initialize History from Storage
+  const [historyResults, setHistoryResults] = useState<HistoryResult[]>(() => safeLoad(STORAGE_KEYS.HISTORY, []));
+  
   const [nextDrawTime, setNextDrawTime] = useState<string>('Cargando...');
   const [isSyncing, setIsSyncing] = useState(false);
   
@@ -102,6 +105,14 @@ const App: React.FC = () => {
       const encrypted = SecureStorage.encrypt(transactions);
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, encrypted);
   }, [transactions]);
+
+  // Persistence for Real History
+  useEffect(() => {
+      if (historyResults.length > 0) {
+          const encrypted = SecureStorage.encrypt(historyResults);
+          localStorage.setItem(STORAGE_KEYS.HISTORY, encrypted);
+      }
+  }, [historyResults]);
 
   // --- EFFECT: IDLE TIMER ---
   useEffect(() => {
@@ -133,24 +144,74 @@ const App: React.FC = () => {
     };
   }, [isAuthenticated]);
 
-  // --- EFFECT: DATA FETCHING ---
+  // --- EFFECT: DATA FETCHING & HISTORY BUILDING ---
 
   useEffect(() => {
     const loadData = async () => {
         setIsSyncing(true);
         try {
+            // This now fetches REAL data from JPS via Agent
             const data = await fetchOfficialData();
             setDailyResults(data.today);
-            setHistoryResults(data.history);
             setNextDrawTime(data.nextDraw);
+            
+            // INTELLIGENT HISTORY MERGE
+            setHistoryResults(prevHistory => {
+                // 1. Create a map of current persistent history to lookup existing entries
+                const currentHistoryMap = new Map<string, HistoryResult>(prevHistory.map(h => [h.date, h]));
+                
+                // 2. Create a map of fetched history
+                // Note: fetchOfficialData returns array.
+                const fetchedHistory = data.history;
+
+                // 3. Merge Strategy:
+                // - If entry exists in 'manual' mode in our storage, KEEP IT. Do not overwrite with scrape.
+                // - If entry doesn't exist, add it.
+                // - If entry exists as 'api', update it with new scrape (in case results were pending and now are final).
+                
+                fetchedHistory.forEach(scrapedItem => {
+                    const existingItem = currentHistoryMap.get(scrapedItem.date);
+                    
+                    if (!existingItem) {
+                        // New data found
+                        currentHistoryMap.set(scrapedItem.date, scrapedItem);
+                    } else {
+                        // Existing data found. Check source.
+                        if (existingItem.source !== 'manual') {
+                            // Safe to update because admin hasn't touched it
+                            currentHistoryMap.set(scrapedItem.date, scrapedItem);
+                        }
+                        // If source IS manual, we do nothing, preserving the admin edit.
+                    }
+                });
+
+                // 4. Convert back to array and sort (Newest first)
+                // Need to parse the date strings for correct sorting.
+                // Dates are stored as locale string, which is tricky to sort directly if format varies.
+                // We assume consistency based on normalization in jpsAgent.
+                return Array.from(currentHistoryMap.values()).sort((a, b) => {
+                    // Convert DD/MM/YYYY or similar to timestamp
+                    const parseDate = (dateStr: string) => {
+                        const parts = dateStr.split('/');
+                        if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0])).getTime();
+                        return new Date(dateStr).getTime();
+                    };
+                    const dateA = parseDate(a.date);
+                    const dateB = parseDate(b.date);
+                    return isNaN(dateA) ? 0 : dateB - dateA;
+                });
+            });
+
         } catch (e) {
             console.error("Error fetching data", e);
         } finally {
             setIsSyncing(false);
         }
     };
+    
     loadData();
-    const interval = setInterval(loadData, 60000); 
+    // Refresh every 5 minutes to avoid slamming proxy
+    const interval = setInterval(loadData, 300000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -184,12 +245,11 @@ const App: React.FC = () => {
     }
   };
 
-  // Register User (Public or via Admin)
   const handleRegister = (userData: Partial<User>, role: 'admin' | 'client', creatingAdminId?: string) => {
     const safeName = Sanitizer.cleanString(userData.name || '');
     const safeEmail = Sanitizer.cleanString(userData.email || '');
     const safePhone = Sanitizer.cleanString(userData.phone || '');
-    // If registered by Admin, pass can be "123456" by default or provided one
+    const safeCedula = Sanitizer.cleanString(userData.cedula || ''); // New Field Sanitization
     const safePassword = userData.password ? hashPasswordSync(userData.password) : hashPasswordSync('123456');
 
     if (!Sanitizer.validateEmail(safeEmail)) {
@@ -200,23 +260,24 @@ const App: React.FC = () => {
         alert("El correo ya está registrado.");
         return;
     }
+    // Note: Cedula uniqueness check is done in AdminPanel for new clients, 
+    // but strictly we could check here too for general registration.
 
     const newUser: User = {
       id: `usr_${Date.now()}`,
+      cedula: safeCedula, // Persist Cedula
       name: safeName,
       email: safeEmail,
       password: safePassword,
       phone: safePhone,
       balance: 0,
       role: role,
-      // If created by an admin, link it. If public registration, no adminId (or handle logic elsewhere)
       adminId: creatingAdminId, 
       tickets: []
     };
     
     setUsers(prev => [...prev, newUser]);
     
-    // If self-registration, log them in
     if (!creatingAdminId) {
         localStorage.setItem(STORAGE_KEYS.SESSION_ID, SecureStorage.encrypt(newUser.id));
         setCurrentUserId(newUser.id);
@@ -235,15 +296,11 @@ const App: React.FC = () => {
       const user = users.find(u => u.email.toLowerCase() === cleanEmail && u.phone === cleanPhone);
       
       if (user) {
-          // Generate 4-digit code
           const code = Math.floor(1000 + Math.random() * 9000).toString();
           setRecoveryCode({ email: cleanEmail, code });
-          
-          // SIMULATE EMAIL SEND
           setTimeout(() => {
             alert(`[SISTEMA DE SEGURIDAD]\n\nSe ha enviado un código de verificación a ${cleanEmail}.\n\nSU CÓDIGO ES: ${code}`);
           }, 500);
-          
           return true;
       }
       return false;
@@ -264,12 +321,10 @@ const App: React.FC = () => {
       alert("Contraseña actualizada exitosamente.");
   };
 
-  // --- ADMIN SUPER POWER: FORCE RESET ---
   const handleAdminForceReset = (userId: string) => {
-      const tempPass = '123456';
+      const tempPass = 'Ganador2025$$';
       const newHash = hashPasswordSync(tempPass);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, password: newHash } : u));
-      alert(`Contraseña restablecida a: ${tempPass}`);
   };
 
   const handleLogout = () => {
@@ -356,6 +411,46 @@ const App: React.FC = () => {
       setDailyResults(prev => prev.map(item => item.draw === draw ? { ...item, number, ballColor, reventadosNumber } : item));
   }, []);
 
+  // New Handler for HISTORY Modification
+  const handleHistoryUpdate = useCallback((dateStr: string, updatedData: HistoryResult['results']) => {
+      setHistoryResults(prev => {
+          const newHistory = [...prev];
+          const index = newHistory.findIndex(h => h.date === dateStr);
+          
+          const newItem: HistoryResult = {
+              date: dateStr,
+              results: updatedData,
+              source: 'manual' // Flag as manual to prevent overwrite
+          };
+
+          if (index >= 0) {
+              newHistory[index] = newItem;
+          } else {
+              newHistory.unshift(newItem);
+              // Sort
+              newHistory.sort((a, b) => {
+                  // Simple parsing assuming normalized format
+                  const tA = new Date(a.date.split('/').reverse().join('-')).getTime() || new Date(a.date).getTime();
+                  const tB = new Date(b.date.split('/').reverse().join('-')).getTime() || new Date(b.date).getTime();
+                  return tB - tA;
+              });
+          }
+          return newHistory;
+      });
+      
+      // If date is today, also update dailyResults
+      const todayStr = new Date().toLocaleDateString();
+      if (dateStr === todayStr) {
+          setDailyResults([
+              { date: todayStr, draw: 'mediodia', number: updatedData.mediodia.number || null, reventadosNumber: updatedData.mediodia.reventadosNumber || null, ballColor: updatedData.mediodia.ball },
+              { date: todayStr, draw: 'tarde', number: updatedData.tarde.number || null, reventadosNumber: updatedData.tarde.reventadosNumber || null, ballColor: updatedData.tarde.ball },
+              { date: todayStr, draw: 'noche', number: updatedData.noche.number || null, reventadosNumber: updatedData.noche.reventadosNumber || null, ballColor: updatedData.noche.ball }
+          ]);
+      }
+
+      alert(`Historial actualizado para el día ${dateStr}. Los datos están bloqueados contra cambios automáticos.`);
+  }, []);
+
   // --- RENDER ---
 
   return (
@@ -380,10 +475,12 @@ const App: React.FC = () => {
                 currentUser={currentUser}
                 users={adminMyUsers} 
                 dailyResults={dailyResults}
+                historyResults={historyResults}
                 transactions={transactions}
                 onRecharge={handleRecharge} 
                 onWithdraw={handleWithdraw}
                 onUpdateResult={handleManualResultUpdate}
+                onUpdateHistory={handleHistoryUpdate}
                 onRegisterClient={(data) => handleRegister(data, 'client', currentUser.id)}
                 onForceResetPassword={handleAdminForceReset}
               />

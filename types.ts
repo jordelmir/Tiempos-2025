@@ -14,6 +14,7 @@ export interface Ticket {
 
 export interface User {
   id: string;
+  cedula?: string; // National ID (CR Format)
   name: string;
   email: string;
   password: string; // Hashed password
@@ -32,13 +33,20 @@ export interface DailyResult {
   ballColor: BallColor | null;
 }
 
+export interface DrawResult {
+    number: string;
+    reventadosNumber: string;
+    ball: BallColor;
+}
+
 export interface HistoryResult {
     date: string;
     results: {
-        mediodia: { number: string, reventadosNumber: string, ball: BallColor };
-        tarde: { number: string, reventadosNumber: string, ball: BallColor };
-        noche: { number: string, reventadosNumber: string, ball: BallColor };
+        mediodia: DrawResult;
+        tarde: DrawResult;
+        noche: DrawResult;
     };
+    source?: 'api' | 'manual'; // Track origin of data to prevent overwrites
 }
 
 export interface Transaction {

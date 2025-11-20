@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
   <head>
@@ -34,6 +33,22 @@
               'float': 'float 6s ease-in-out infinite',
               'bounce-in': 'bounceIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
               'fade-in-up': 'fadeInUp 0.5s ease-out',
+              'shake-hard': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both',
+              'glitch': 'glitch 1s linear infinite',
+              'scale-pulse': 'scalePulse 2s infinite',
+              'zoom-in-fast': 'zoomIn 0.3s ease-out forwards',
+              'spin-slow': 'spin 12s linear infinite',
+              'scan': 'scan 2s linear infinite',
+              'shimmer': 'shimmer 2s infinite linear',
+              'stamp': 'stamp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+              'lock-in': 'lockIn 0.6s cubic-bezier(0.215, 0.61, 0.355, 1) forwards',
+              'scan-line': 'scanLine 1.5s linear infinite',
+              'critical-pulse': 'criticalPulse 0.5s ease-in-out infinite',
+              'temporal-flux': 'temporalFlux 0.2s ease-in-out infinite',
+              'holo-scan': 'holoScan 2s linear infinite',
+              'success-flash': 'successFlash 0.5s ease-out forwards',
+              'text-shimmer': 'textShimmer 2.5s linear infinite',
+              'warp-out': 'warpOut 0.8s cubic-bezier(0.7, 0, 0.84, 0) forwards',
             },
             keyframes: {
               float: {
@@ -49,6 +64,73 @@
               fadeInUp: {
                 '0%': { opacity: 0, transform: 'translateY(10px)' },
                 '100%': { opacity: 1, transform: 'translateY(0)' },
+              },
+              shake: {
+                '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' },
+                '20%, 80%': { transform: 'translate3d(2px, 0, 0)' },
+                '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' },
+                '40%, 60%': { transform: 'translate3d(4px, 0, 0)' }
+              },
+              glitch: {
+                '2%, 64%': { transform: 'translate(2px,0) skew(0deg)' },
+                '4%, 60%': { transform: 'translate(-2px,0) skew(0deg)' },
+                '62%': { transform: 'translate(0,0) skew(5deg)' }
+              },
+              scalePulse: {
+                '0%': { transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(239, 68, 68, 0.7)' },
+                '70%': { transform: 'scale(1.05)', boxShadow: '0 0 0 20px rgba(239, 68, 68, 0)' },
+                '100%': { transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(239, 68, 68, 0)' }
+              },
+              zoomIn: {
+                '0%': { opacity: 0, transform: 'scale(0.5)' },
+                '100%': { opacity: 1, transform: 'scale(1)' }
+              },
+              scan: {
+                '0%': { transform: 'translateY(-100%)' },
+                '100%': { transform: 'translateY(100%)' }
+              },
+              shimmer: {
+                '0%': { backgroundPosition: '-1000px 0' },
+                '100%': { backgroundPosition: '1000px 0' }
+              },
+              stamp: {
+                '0%': { opacity: 0, transform: 'scale(2)' },
+                '100%': { opacity: 1, transform: 'scale(1)' }
+              },
+              lockIn: {
+                '0%': { transform: 'scale(2)', opacity: 0, letterSpacing: '1em' },
+                '50%': { transform: 'scale(0.9)', opacity: 1 },
+                '100%': { transform: 'scale(1)', opacity: 1, letterSpacing: 'normal' }
+              },
+              scanLine: {
+                '0%': { top: '-10%' },
+                '100%': { top: '110%' }
+              },
+              criticalPulse: {
+                '0%, 100%': { opacity: 1, boxShadow: 'inset 0 0 50px rgba(239, 68, 68, 0.5)' },
+                '50%': { opacity: 0.8, boxShadow: 'inset 0 0 10px rgba(239, 68, 68, 0.2)' }
+              },
+              temporalFlux: {
+                '0%': { filter: 'blur(0px) hue-rotate(0deg)', transform: 'translate(0,0)' },
+                '50%': { filter: 'blur(1px) hue-rotate(5deg)', transform: 'translate(0.5px, 0.5px)' },
+                '100%': { filter: 'blur(0px) hue-rotate(0deg)', transform: 'translate(0,0)' }
+              },
+              holoScan: {
+                '0%': { backgroundPosition: '0% 0%' },
+                '100%': { backgroundPosition: '0% 100%' }
+              },
+              successFlash: {
+                '0%': { backgroundColor: 'white', opacity: 0.8 },
+                '100%': { backgroundColor: 'transparent', opacity: 0 }
+              },
+              textShimmer: {
+                '0%': { backgroundPosition: '0% 50%' },
+                '100%': { backgroundPosition: '100% 50%' }
+              },
+              warpOut: {
+                 '0%': { opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' },
+                 '50%': { opacity: 0.8, transform: 'scale(1.1)', filter: 'blur(2px)' },
+                 '100%': { opacity: 0, transform: 'scale(3)', filter: 'blur(20px)' }
               }
             }
           }
