@@ -484,6 +484,23 @@ function App() {
       return { data: { user: { id: data }, session: null }, error: null };
   };
 
+  const handleForceResetPassword = async (userId: string) => {
+     const user = users.find(u => u.id === userId);
+     if(!user || !user.email) return;
+
+     try {
+         const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+             redirectTo: window.location.origin
+         });
+         
+         if (error) throw error;
+         
+     } catch (err: any) {
+         console.error("Error sending reset email:", err);
+         alert(`Error enviando correo: ${err.message}`);
+     }
+  };
+
   const handleToggleBlock = async (userId: string, currentStatus: boolean) => {
       optimisticUpdateUser(userId, { blocked: !currentStatus });
       const { error } = await supabase.from('profiles').update({ blocked: !currentStatus }).eq('id', userId);
@@ -637,7 +654,7 @@ function App() {
                         onUpdateResult={handleUpdateResult}
                         onUpdateHistory={() => {}}
                         onRegisterClient={handleRegisterClient}
-                        onForceResetPassword={() => {}}
+                        onForceResetPassword={handleForceResetPassword}
                         onToggleBlock={handleToggleBlock}
                         onDeleteUser={handleDeleteUser}
                         onPurchase={handlePurchase}

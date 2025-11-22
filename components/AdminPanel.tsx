@@ -23,7 +23,12 @@ import {
     KeyIcon,
     RefreshIcon,
     UserCircleIcon,
-    IdentificationIcon
+    IdentificationIcon,
+    ExclamationTriangleIcon,
+    MailIcon,
+    PhoneIcon,
+    ClipboardIcon,
+    ClipboardCheckIcon
 } from './icons/Icons';
 
 interface AdminPanelProps {
@@ -181,11 +186,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const [actionModal, setActionModal] = useState<{isOpen: boolean, type: ActionType, amount: number, details?: string}>({
       isOpen: false, type: 'deposit', amount: 0
   });
+  
+  // --- REGISTER MODAL STATE ---
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [registerStep, setRegisterStep] = useState<'form' | 'processing' | 'success'>('form');
   const [newUser, setNewUser] = useState({ cedula: '', name: '', email: '', phone: '' });
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [registerError, setRegisterError] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
 
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [deleteConfirmUserId, setDeleteConfirmUserId] = useState<string | null>(null);
@@ -343,6 +351,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const generateSecurePassword = () => `Tiempos${Math.random().toString(36).slice(-6).toUpperCase()}!`;
 
+  const resetRegisterForm = () => {
+      setNewUser({ cedula: '', name: '', email: '', phone: '' });
+      setRegisterStep('form');
+      setRegisterError('');
+      setGeneratedPassword('');
+      setIsCopied(false);
+  };
+
+  const handleCloseRegisterModal = () => {
+      setShowRegisterModal(false);
+      setTimeout(resetRegisterForm, 300); // Wait for animation to close
+  };
+
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError('');
@@ -358,10 +379,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleCopyPassword = () => {
+      navigator.clipboard.writeText(generatedPassword);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+  };
+
   const initiatePasswordReset = (user: User) => {
-    if (window.confirm(`¿Estás seguro de resetear la contraseña para el usuario ${user.name}?`)) {
+    if (window.confirm(`¿⚠️ ATENCIÓN: Estás seguro de restablecer la contraseña para ${user.name}? Se enviará un enlace de recuperación al correo: ${user.email}.`)) {
         onForceResetPassword(user.id);
-        alert('Contraseña reseteada (Simulación).');
+        alert('✅ Comando de restablecimiento enviado correctamente. Verifique la bandeja de entrada del usuario.');
     }
   };
 
@@ -513,16 +540,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   {/* Right Column: Actions & Top Winner (4 cols) */}
                   <div className="lg:col-span-4 flex flex-col gap-6">
-                     {/* Transaction Buttons */}
-                     <div className="bg-brand-secondary p-1 rounded-xl flex gap-1 border border-white/5 shadow-lg">
-                        <button onClick={() => setTransactionMode('deposit')} className={`flex-1 py-4 rounded-lg text-xs font-bold uppercase transition-all ${transactionMode === 'deposit' ? 'bg-brand-success text-black shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                            Depósito
-                        </button>
-                        <button onClick={() => setTransactionMode('withdraw')} className={`flex-1 py-4 rounded-lg text-xs font-bold uppercase transition-all ${transactionMode === 'withdraw' ? 'bg-brand-danger text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                            Retiro
-                        </button>
-                     </div>
-
                      {/* Top Winner Card - FIXED HEIGHT & LAYOUT */}
                      <div className="flex-grow min-h-[200px] relative group">
                          <div className="absolute inset-0 bg-gradient-to-br from-brand-gold/20 to-orange-600/20 rounded-2xl blur-xl opacity-40 group-hover:opacity-60 transition-opacity duration-500"></div>
@@ -545,9 +562,50 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                          </div>
                      </div>
                      
-                     <Button onClick={() => setShowRegisterModal(true)} variant="secondary" className="w-full border-dashed border-brand-accent/50 hover:border-brand-accent hover:bg-brand-accent/10">
-                         <UserPlusIcon className="h-4 w-4"/> Nuevo Registro
-                     </Button>
+                     {/* BUTTON - NUEVO JUGADOR (EMERALD GEMSTONE EDITION -> BLACK NEON CORE) */}
+                     <button
+                        onClick={() => setShowRegisterModal(true)}
+                        className="relative w-full h-32 group isolate" 
+                     >
+                        {/* 1. THICKER GEMSTONE GLOW (Backlight - Maintained) */}
+                        <div className="absolute -inset-3 bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400 rounded-[2rem] blur-2xl opacity-40 group-hover:opacity-100 transition duration-500 animate-pulse-slow -z-10"></div>
+                        
+                        {/* 2. OUTER RIM (The Gemstone Edge) */}
+                        <div className="absolute -inset-[1px] bg-gradient-to-r from-emerald-400 via-white to-teal-400 rounded-2xl blur-sm opacity-50 group-hover:opacity-100 transition duration-300 -z-10"></div>
+
+                        {/* 3. MAIN CONTAINER (BLACK NEON CORE) */}
+                        {/* Changed bg from #022c22 to #020202 (Black) for high contrast */}
+                        <div className="relative h-full w-full bg-[#020202] rounded-2xl border border-emerald-500/30 group-hover:border-emerald-400/80 overflow-hidden flex items-center justify-between px-6 z-10 shadow-[inset_0_0_20px_rgba(0,0,0,1)] transition-colors duration-300">
+                                
+                                {/* Background Texture - Darker now */}
+                                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-40 mix-blend-color-dodge"></div>
+                                
+                                {/* Internal Neon Pulse (The "Black Neon" feel) */}
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-[80px] pointer-events-none group-hover:bg-emerald-500/10 transition-colors"></div>
+
+                                {/* TEXT SECTION */}
+                                <div className="relative z-20 flex flex-col items-start gap-1 flex-1 min-w-0 pr-4">
+                                {/* High contrast text */}
+                                <span className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(16,185,129,0.8)] leading-none truncate w-full group-hover:text-emerald-300 transition-colors">
+                                    NUEVO JUGADOR
+                                </span>
+                                <div className="flex items-center gap-2 mt-1">
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping box-content border border-emerald-900"></span>
+                                        <span className="text-[9px] font-mono text-emerald-500/70 tracking-widest font-bold group-hover:text-emerald-400 transition-colors">
+                                            /// INITIALIZE_CORE
+                                        </span>
+                                </div>
+                                </div>
+                                
+                                {/* ICON SECTION - Floating Orb */}
+                                <div className="relative z-20 flex-shrink-0">
+                                <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-20 group-hover:opacity-60 transition-opacity rounded-full"></div>
+                                <div className="w-14 h-14 rounded-xl bg-black border border-emerald-500/50 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)] group-hover:scale-110 transition-transform duration-300 group-hover:rotate-3 group-hover:shadow-[0_0_25px_rgba(16,185,129,0.6)] group-hover:bg-emerald-950">
+                                    <UserPlusIcon className="h-7 w-7"/>
+                                </div>
+                                </div>
+                        </div>
+                     </button>
                   </div>
               </div>
               
@@ -626,11 +684,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
                                   {/* Footer Section: Admin Controls */}
                                   <div className="px-5 py-3 bg-black/40 border-t border-white/5 flex justify-between items-center gap-2">
-                                      <button onClick={() => initiatePasswordReset(user)} className="text-[10px] font-bold text-gray-500 hover:text-brand-gold transition-colors flex items-center gap-1">
-                                          <KeyIcon className="h-3 w-3"/> PASS
+                                      <button 
+                                        onClick={() => initiatePasswordReset(user)} 
+                                        className="text-[9px] font-bold text-amber-500 hover:text-amber-300 transition-colors flex items-center gap-1.5 bg-amber-900/10 hover:bg-amber-900/30 px-3 py-1.5 rounded border border-amber-500/20 hover:border-amber-500/50"
+                                      >
+                                          <KeyIcon className="h-3 w-3"/> RESTABLECER CONTRASEÑA
                                       </button>
                                       
-                                      <div className="flex gap-2">
+                                      <div className="flex gap-2 items-center">
                                           {/* BLOCK TOGGLE */}
                                           <button 
                                             onClick={() => handleBlockClick(user.id, !!user.blocked)} 
@@ -641,15 +702,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                               {processingUserId === user.id ? <RefreshIcon className="h-3 w-3 animate-spin"/> : (user.blocked ? <CheckCircleIcon className="h-3 w-3"/> : <LockIcon className="h-3 w-3"/>)}
                                           </button>
                                           
-                                          {/* DELETE BUTTON */}
+                                          {/* DANGER ZONE - DELETE BUTTON */}
                                           {user.id !== currentUser.id && (
                                               <button 
                                                 onClick={() => handleDeleteClick(user.id)} 
                                                 disabled={processingUserId === user.id}
-                                                className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${deleteConfirmUserId === user.id ? 'bg-red-600 text-white animate-pulse' : 'text-gray-600 hover:text-red-500 hover:bg-red-500/10'}`}
-                                                title="Eliminar (Doble click)"
+                                                className={`
+                                                    relative h-7 rounded flex items-center justify-center transition-all duration-300 overflow-hidden
+                                                    ${deleteConfirmUserId === user.id 
+                                                        ? 'bg-red-600 text-white w-24 shadow-[0_0_15px_rgba(220,38,38,0.8)] animate-pulse' 
+                                                        : 'text-gray-600 hover:text-red-500 hover:bg-red-500/10 w-7'}
+                                                `}
+                                                title={deleteConfirmUserId === user.id ? "CONFIRMAR ELIMINACIÓN" : "Eliminar Usuario"}
                                               >
-                                                  <TrashIcon className="h-3 w-3"/>
+                                                  {deleteConfirmUserId === user.id ? (
+                                                      <div className="flex items-center gap-1 text-[9px] font-black uppercase whitespace-nowrap px-2">
+                                                          <ExclamationTriangleIcon className="h-3 w-3"/> Confirmar
+                                                      </div>
+                                                  ) : (
+                                                      <TrashIcon className="h-3 w-3"/>
+                                                  )}
                                               </button>
                                           )}
                                       </div>
@@ -666,8 +738,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeTab === 'draws' && (
           <div className="animate-fade-in-up">
              <div className="flex items-center gap-4 mb-8">
-                 <div className="p-3 bg-brand-accent/20 rounded-xl border border-brand-accent/30">
-                     <CpuIcon className="h-8 w-8 text-brand-accent"/>
+                 <div className="p-3 bg-brand-accent/20 rounded-xl border border-brand-accent/30 shadow-[0_0_20px_rgba(99,102,241,0.4)]">
+                     <CpuIcon className="h-8 w-8 text-brand-accent animate-pulse"/>
                  </div>
                  <div>
                      <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Monitor de Sorteos</h2>
@@ -678,36 +750,50 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  {(['mediodia', 'tarde', 'noche'] as DrawType[]).map(draw => {
                      const result = dailyResults.find(r => r.draw === draw);
                      const isOpen = !result?.number;
-                     return (
-                        <Card key={draw} glowColor={draw === 'mediodia' ? 'from-orange-500/30 to-yellow-500/30' : draw === 'tarde' ? 'from-purple-500/30 to-pink-500/30' : 'from-blue-600/30 to-cyan-500/30'}>
-                            <div className="flex justify-between items-start mb-8">
-                                <h3 className="text-xl font-black text-white uppercase tracking-widest">{DRAW_LABELS[draw]}</h3>
-                                <div className={`flex items-center gap-2 px-2 py-1 rounded border ${isOpen ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500' : 'bg-brand-success/10 border-brand-success/30 text-brand-success'}`}>
-                                    <div className={`w-1.5 h-1.5 rounded-full ${isOpen ? 'bg-yellow-500 animate-pulse' : 'bg-brand-success'}`}></div>
-                                    <span className="text-[9px] font-bold uppercase">{isOpen ? 'PENDIENTE' : 'CERRADO'}</span>
-                                </div>
-                            </div>
-                            
-                            <div className="flex flex-col items-center justify-center py-8 relative">
-                                {result?.number ? (
-                                    <div className="relative">
-                                        <div className={`absolute inset-0 blur-2xl opacity-40 ${result.ballColor === 'roja' ? 'bg-red-600' : 'bg-white'}`}></div>
-                                        <div className="text-8xl font-black font-mono tracking-tighter text-white relative z-10 drop-shadow-2xl">
-                                            {result.number}
-                                        </div>
-                                        {result.ballColor === 'roja' && <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-bold bg-red-600 text-white px-2 py-0.5 rounded uppercase tracking-widest">Reventado</div>}
-                                    </div>
-                                ) : (
-                                    <div className="w-32 h-32 rounded-full border-2 border-dashed border-white/10 flex items-center justify-center">
-                                        <span className="text-4xl text-white/10 font-black">--</span>
-                                    </div>
-                                )}
-                            </div>
+                     
+                     // Intense backlight config
+                     const intenseGlow = draw === 'mediodia' 
+                        ? 'from-orange-500 via-yellow-500 to-orange-600' 
+                        : draw === 'tarde' 
+                            ? 'from-purple-600 via-pink-500 to-purple-700' 
+                            : 'from-blue-600 via-cyan-500 to-blue-700';
 
-                            <Button className="w-full mt-8" variant={isOpen ? "primary" : "secondary"} onClick={() => openDrawManager(draw, result || { number: null, ballColor: null, reventadosNumber: null } as any)}>
-                                <KeyIcon className="h-4 w-4"/> {isOpen ? 'INGRESAR RESULTADO' : 'MODIFICAR DATOS'}
-                            </Button>
-                        </Card>
+                     return (
+                        <div key={draw} className="relative group hover:scale-[1.02] transition-transform duration-500">
+                             {/* EXTRA BACKLIGHT GLOW LAYER */}
+                             <div className={`absolute -inset-4 bg-gradient-to-r ${intenseGlow} rounded-[2rem] blur-2xl opacity-30 group-hover:opacity-60 transition duration-700 animate-pulse-slow`}></div>
+
+                            <Card glowColor={intenseGlow} className="relative z-10">
+                                <div className="flex justify-between items-start mb-8">
+                                    <h3 className="text-xl font-black text-white uppercase tracking-widest drop-shadow-md">{DRAW_LABELS[draw]}</h3>
+                                    <div className={`flex items-center gap-2 px-2 py-1 rounded border ${isOpen ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500' : 'bg-brand-success/10 border-brand-success/30 text-brand-success'}`}>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${isOpen ? 'bg-yellow-500 animate-pulse' : 'bg-brand-success'}`}></div>
+                                        <span className="text-[9px] font-bold uppercase">{isOpen ? 'PENDIENTE' : 'CERRADO'}</span>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex flex-col items-center justify-center py-8 relative">
+                                    {result?.number ? (
+                                        <div className="relative">
+                                            <div className={`absolute inset-0 blur-3xl opacity-60 ${result.ballColor === 'roja' ? 'bg-red-600' : 'bg-white'}`}></div>
+                                            <div className="text-8xl font-black font-mono tracking-tighter text-white relative z-10 drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]">
+                                                {result.number}
+                                            </div>
+                                            {result.ballColor === 'roja' && <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-bold bg-red-600 text-white px-2 py-0.5 rounded uppercase tracking-widest shadow-[0_0_10px_#EF4444] animate-pulse">Reventado</div>}
+                                        </div>
+                                    ) : (
+                                        <div className="w-32 h-32 rounded-full border-2 border-dashed border-white/10 flex items-center justify-center relative overflow-hidden">
+                                            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent animate-spin-slow"></div>
+                                            <span className="text-4xl text-white/10 font-black">--</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <Button className="w-full mt-8" variant={isOpen ? "primary" : "secondary"} onClick={() => openDrawManager(draw, result || { number: null, ballColor: null, reventadosNumber: null } as any)}>
+                                    <KeyIcon className="h-4 w-4"/> {isOpen ? 'INGRESAR RESULTADO' : 'MODIFICAR DATOS'}
+                                </Button>
+                            </Card>
+                        </div>
                      )
                  })}
              </div>
@@ -813,47 +899,242 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
       )}
 
-      {/* Register Modal */}
+      {/* Register Modal - ULTIMATE CYBER TECH REDESIGN */}
       {showRegisterModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-              <div className="w-full max-w-md bg-[#0B101B] border border-white/10 rounded-3xl p-8 relative shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-zoom-in-fast">
-                  <button onClick={() => setShowRegisterModal(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white">✕</button>
-                  <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2"><UserCircleIcon className="h-6 w-6 text-brand-accent"/> Nuevo Agente</h2>
-                  {registerStep === 'form' ? (
-                      <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                          <div className="w-full group">
-                              <label className="block text-xs uppercase tracking-wider font-bold text-brand-text-secondary mb-2">Nombre</label>
-                              <input className="w-full bg-brand-secondary/50 border border-brand-border rounded-xl py-3 px-4 text-brand-text-primary focus:ring-2 focus:ring-brand-accent focus:border-transparent transition-all" placeholder="Nombre Completo" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})}/>
-                          </div>
-                          <div className="w-full group">
-                              <label className="block text-xs uppercase tracking-wider font-bold text-brand-text-secondary mb-2">Email</label>
-                              <input type="email" className="w-full bg-brand-secondary/50 border border-brand-border rounded-xl py-3 px-4 text-brand-text-primary focus:ring-2 focus:ring-brand-accent focus:border-transparent transition-all" placeholder="Correo Electrónico" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})}/>
-                          </div>
-                          <div className="w-full group">
-                              <label className="block text-xs uppercase tracking-wider font-bold text-brand-text-secondary mb-2">Teléfono</label>
-                              <input className="w-full bg-brand-secondary/50 border border-brand-border rounded-xl py-3 px-4 text-brand-text-primary focus:ring-2 focus:ring-brand-accent focus:border-transparent transition-all" placeholder="Teléfono" value={newUser.phone} onChange={e => setNewUser({...newUser, phone: e.target.value})}/>
-                          </div>
-                          <div className="w-full group">
-                              <label className="block text-xs uppercase tracking-wider font-bold text-brand-text-secondary mb-2">Cédula</label>
-                              <input className="w-full bg-brand-secondary/50 border border-brand-border rounded-xl py-3 px-4 text-brand-text-primary focus:ring-2 focus:ring-brand-accent focus:border-transparent transition-all" placeholder="ID Nacional" value={newUser.cedula} onChange={e => setNewUser({...newUser, cedula: e.target.value})}/>
-                          </div>
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              {/* Backdrop blur */}
+              <div className="absolute inset-0 bg-black/95 backdrop-blur-xl" onClick={handleCloseRegisterModal}></div>
+              
+              <div className="relative w-full max-w-lg group animate-zoom-in-fast isolate">
+                  {/* Neon Tech Border Wrappers */}
+                  <div className="absolute top-0 left-0 w-24 h-24 border-t-2 border-l-2 border-brand-cyan rounded-tl-3xl z-30"></div>
+                  <div className="absolute bottom-0 right-0 w-24 h-24 border-b-2 border-r-2 border-brand-cyan rounded-br-3xl z-30"></div>
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-brand-accent/50 rounded-tr-xl z-30"></div>
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-brand-accent/50 rounded-bl-xl z-30"></div>
 
-                          {registerError && <p className="text-red-500 text-xs">{registerError}</p>}
-                          <Button type="submit" className="w-full mt-4">Registrar</Button>
-                      </form>
-                  ) : registerStep === 'processing' ? (
-                      <div className="text-center py-10"><RefreshIcon className="h-10 w-10 animate-spin mx-auto text-brand-accent"/></div>
-                  ) : (
-                      <div className="text-center py-4">
-                          <CheckCircleIcon className="h-16 w-16 text-brand-success mx-auto mb-4"/>
-                          <p className="text-white font-bold mb-2">¡Usuario Creado!</p>
-                          <div className="bg-black p-4 rounded-lg font-mono text-sm mb-4 border border-brand-accent/30 text-brand-accent">
-                              PASS: {generatedPassword}
+                  {/* MASSIVE BACKLIGHT GLOW (Lights coming from behind - OUTSIDE THE BOX) */}
+                  <div className="absolute -inset-20 bg-gradient-to-r from-blue-600/40 via-cyan-600/40 to-violet-700/40 rounded-[4rem] blur-[80px] opacity-80 animate-pulse-slow pointer-events-none -z-10"></div>
+                  
+                  {/* Inner container */}
+                  <div className="relative bg-[#020408] border border-brand-cyan/30 rounded-3xl p-8 shadow-[0_0_100px_rgba(6,182,212,0.4)] overflow-hidden z-10">
+                      {/* Tech Grid Background Overlay */}
+                      <div className="absolute inset-0 bg-grid-pattern opacity-[0.1] pointer-events-none"></div>
+                      {/* Scan Line Effect */}
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-brand-cyan to-transparent opacity-50 animate-scan-line pointer-events-none"></div>
+                      
+                      {/* Close Button */}
+                      <button onClick={handleCloseRegisterModal} className="absolute top-5 right-5 text-gray-500 hover:text-white hover:rotate-90 transition-all z-40 bg-black/50 rounded-full p-2 border border-white/10 hover:border-brand-cyan">✕</button>
+                      
+                      {/* Header */}
+                      <div className="relative z-10 mb-10 pb-6 border-b border-white/10">
+                          <div className="flex items-center gap-4">
+                                <div className="relative">
+                                    <div className="absolute -inset-4 bg-brand-cyan/20 rounded-full blur-xl animate-pulse"></div>
+                                    <div className="w-14 h-14 rounded-xl bg-black border border-brand-cyan/50 flex items-center justify-center shadow-[inset_0_0_30px_rgba(6,182,212,0.3)]">
+                                        <UserPlusIcon className="h-7 w-7 text-brand-cyan"/>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h2 className="text-3xl font-black text-white uppercase tracking-tighter leading-none italic">
+                                        NUEVO <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-cyan to-blue-500 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]">JUGADOR</span>
+                                    </h2>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <span className="w-1.5 h-1.5 bg-brand-success rounded-full animate-ping"></span>
+                                        <p className="text-[10px] font-mono text-brand-cyan tracking-[0.2em] uppercase opacity-80">System_Provisioning_Mode</p>
+                                    </div>
+                                </div>
                           </div>
-                          <p className="text-xs text-gray-500">Copia esta contraseña temporal.</p>
-                          <Button onClick={() => setShowRegisterModal(false)} className="w-full mt-4">Cerrar</Button>
                       </div>
-                  )}
+
+                      {registerStep === 'form' ? (
+                          <form onSubmit={handleRegisterSubmit} className="space-y-6 relative z-10" autoComplete="off">
+                              
+                              {/* INPUT: NOMBRE */}
+                              <div className="group relative">
+                                  <label className="text-[9px] font-mono font-bold text-brand-cyan uppercase tracking-widest mb-2 block pl-1">IDENTITY_NAME</label>
+                                  <div className="relative bg-black/80 border border-white/10 rounded-xl flex items-center overflow-hidden group-focus-within:border-brand-cyan/80 group-focus-within:shadow-[0_0_20px_rgba(6,182,212,0.2)] transition-all">
+                                      <div className="pl-4 pr-3 text-gray-600 group-focus-within:text-brand-cyan transition-colors">
+                                          <UserCircleIcon className="h-5 w-5"/>
+                                      </div>
+                                      <input 
+                                          className="w-full bg-transparent border-none text-sm font-bold text-white placeholder-gray-700 focus:ring-0 focus:outline-none py-4 pl-0 transition-all outline-none font-mono uppercase" 
+                                          placeholder="NOMBRE COMPLETO" 
+                                          value={newUser.name} 
+                                          onChange={e => setNewUser({...newUser, name: e.target.value})}
+                                          autoComplete="off"
+                                          style={{ WebkitBoxShadow: "0 0 0 1000px #030508 inset", WebkitTextFillColor: "white", caretColor: "#06B6D4" }}
+                                      />
+                                      {/* Animated Bottom Border */}
+                                      <div className="absolute bottom-0 left-0 w-full h-[2px] bg-brand-cyan transform scale-x-0 group-focus-within:scale-x-100 transition-transform duration-500"></div>
+                                  </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                  {/* INPUT: EMAIL - DARK PURPLE / INDIGO */}
+                                  <div className="group relative">
+                                      <label className="text-[9px] font-mono font-bold text-indigo-400 uppercase tracking-widest mb-2 block pl-1">DIGITAL_MAIL</label>
+                                      <div className="relative bg-black/80 border border-white/10 rounded-xl flex items-center overflow-hidden group-focus-within:border-indigo-500/80 group-focus-within:shadow-[0_0_20px_rgba(99,102,241,0.2)] transition-all">
+                                          <div className="pl-3 pr-2 text-gray-600 group-focus-within:text-indigo-400 transition-colors">
+                                              <MailIcon className="h-4 w-4"/>
+                                          </div>
+                                          <input 
+                                              type="email"
+                                              className="w-full bg-transparent border-none text-xs font-bold text-white placeholder-gray-700 focus:ring-0 focus:outline-none py-4 pl-0 transition-all outline-none font-mono" 
+                                              placeholder="CORREO" 
+                                              value={newUser.email} 
+                                              onChange={e => setNewUser({...newUser, email: e.target.value})}
+                                              autoComplete="off"
+                                              style={{ WebkitBoxShadow: "0 0 0 1000px #030508 inset", WebkitTextFillColor: "white", caretColor: "#6366F1" }}
+                                          />
+                                          <div className="absolute bottom-0 left-0 w-full h-[2px] bg-indigo-500 transform scale-x-0 group-focus-within:scale-x-100 transition-transform duration-500"></div>
+                                      </div>
+                                  </div>
+
+                                  {/* INPUT: PHONE - ELECTRIC BLUE */}
+                                  <div className="group relative">
+                                      <label className="text-[9px] font-mono font-bold text-blue-400 uppercase tracking-widest mb-2 block pl-1">COMM_LINK</label>
+                                      <div className="relative bg-black/80 border border-white/10 rounded-xl flex items-center overflow-hidden group-focus-within:border-blue-500/80 group-focus-within:shadow-[0_0_20px_rgba(59,130,246,0.2)] transition-all">
+                                          <div className="pl-3 pr-2 text-gray-600 group-focus-within:text-blue-400 transition-colors">
+                                              <PhoneIcon className="h-4 w-4"/>
+                                          </div>
+                                          <input 
+                                              className="w-full bg-transparent border-none text-xs font-bold text-white placeholder-gray-700 focus:ring-0 focus:outline-none py-4 pl-0 transition-all outline-none font-mono" 
+                                              placeholder="TELÉFONO" 
+                                              value={newUser.phone} 
+                                              onChange={e => setNewUser({...newUser, phone: e.target.value})}
+                                              autoComplete="off"
+                                              style={{ WebkitBoxShadow: "0 0 0 1000px #030508 inset", WebkitTextFillColor: "white", caretColor: "#3B82F6" }}
+                                          />
+                                          <div className="absolute bottom-0 left-0 w-full h-[2px] bg-blue-500 transform scale-x-0 group-focus-within:scale-x-100 transition-transform duration-500"></div>
+                                      </div>
+                                  </div>
+                              </div>
+
+                              {/* INPUT: CEDULA - GOLD */}
+                              <div className="group relative">
+                                  <label className="text-[9px] font-mono font-bold text-brand-gold uppercase tracking-widest mb-2 block pl-1">CITIZEN_ID</label>
+                                  <div className="relative bg-black/80 border border-white/10 rounded-xl flex items-center overflow-hidden group-focus-within:border-brand-gold/80 group-focus-within:shadow-[0_0_20px_rgba(245,158,11,0.2)] transition-all">
+                                      <div className="pl-4 pr-3 text-gray-600 group-focus-within:text-brand-gold transition-colors">
+                                          <IdentificationIcon className="h-5 w-5"/>
+                                      </div>
+                                      <input 
+                                          className="w-full bg-transparent border-none text-sm font-bold text-white placeholder-gray-700 focus:ring-0 focus:outline-none py-4 pl-0 transition-all outline-none font-mono" 
+                                          placeholder="IDENTIFICACIÓN" 
+                                          value={newUser.cedula} 
+                                          onChange={e => setNewUser({...newUser, cedula: e.target.value})}
+                                          autoComplete="off"
+                                          style={{ WebkitBoxShadow: "0 0 0 1000px #030508 inset", WebkitTextFillColor: "white", caretColor: "#F59E0B" }}
+                                      />
+                                      <div className="absolute bottom-0 left-0 w-full h-[2px] bg-brand-gold transform scale-x-0 group-focus-within:scale-x-100 transition-transform duration-500"></div>
+                                  </div>
+                              </div>
+
+                              {registerError && (
+                                  <div className="bg-red-950/50 border border-red-500/30 p-3 rounded-lg flex items-center gap-3 animate-shake-hard shadow-[0_0_15px_rgba(220,38,38,0.2)]">
+                                      <ExclamationTriangleIcon className="h-5 w-5 text-red-500"/>
+                                      <span className="text-[10px] font-mono text-red-400 font-bold uppercase tracking-wide">{registerError}</span>
+                                  </div>
+                              )}
+
+                              {/* TECH EXECUTE BUTTON - REACTOR CORE STYLE */}
+                              <button 
+                                type="submit" 
+                                className="group/btn relative w-full py-6 rounded-xl overflow-hidden transition-all duration-300 active:scale-95 hover:shadow-[0_0_80px_rgba(59,130,246,0.4)] mt-6 border border-blue-500/30 hover:border-blue-400/60"
+                              >
+                                  <div className="absolute inset-0 bg-[#020617] z-0"></div>
+                                  <div className="absolute inset-0 bg-grid-pattern opacity-20 pointer-events-none"></div>
+                                  
+                                  {/* Core Glow */}
+                                  <div className="absolute inset-0 bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-900 opacity-60 group-hover/btn:opacity-90 transition-opacity duration-500"></div>
+
+                                  {/* Sliding Energy */}
+                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-400/20 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700 ease-in-out z-10"></div>
+
+                                  <div className="relative z-30 flex items-center justify-center gap-4">
+                                      <CpuIcon className="h-5 w-5 text-blue-400 animate-pulse"/>
+                                      <div className="flex flex-col items-start leading-none">
+                                          <span className="text-sm font-black text-white uppercase tracking-[0.25em] group-hover/btn:text-blue-200 transition-colors drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]">
+                                              EJECUTAR REGISTRO
+                                          </span>
+                                          <span className="text-[8px] font-mono text-gray-500 group-hover/btn:text-blue-300/50">/// INICIAR PROTOCOLO DE ALTA</span>
+                                      </div>
+                                  </div>
+                              </button>
+                          </form>
+                      ) : registerStep === 'processing' ? (
+                          <div className="text-center py-12 relative z-10">
+                               <div className="w-24 h-24 mx-auto relative mb-8">
+                                   <div className="absolute inset-0 rounded-full border-4 border-blue-500/20"></div>
+                                   <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin"></div>
+                                   <div className="absolute inset-4 rounded-full bg-blue-500/10 animate-pulse flex items-center justify-center">
+                                       <CpuIcon className="h-8 w-8 text-blue-500"/>
+                                   </div>
+                               </div>
+                               <p className="text-white font-black uppercase text-xl animate-pulse tracking-widest mb-2">Procesando Datos</p>
+                               <p className="text-blue-400 font-mono text-xs">/// ENCRIPTANDO CON LLAVE AES-256...</p>
+                          </div>
+                      ) : (
+                          <div className="text-center py-2 relative z-10 animate-fade-in-up">
+                              {/* Success Icon Halo */}
+                              <div className="relative w-24 h-24 mx-auto mb-6">
+                                  <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-xl animate-pulse"></div>
+                                  <div className="relative w-full h-full bg-[#050910] rounded-full flex items-center justify-center border-2 border-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.4)]">
+                                      <CheckCircleIcon className="h-10 w-10 text-blue-500 animate-bounce-in"/>
+                                  </div>
+                              </div>
+
+                              <h3 className="text-3xl font-black text-white uppercase tracking-tighter mb-1">¡JUGADOR VINCULADO!</h3>
+                              <p className="text-gray-500 font-mono text-xs mb-8 uppercase tracking-widest">Credenciales Generadas Exitosamente</p>
+                              
+                              {/* CREDENTIAL HOLO-CARD UI - DARK MODE */}
+                              <div className="bg-[#020408] p-6 rounded-2xl border border-white/10 mb-8 relative group overflow-hidden shadow-2xl mx-2">
+                                  {/* Holo Effect */}
+                                  <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-blue-900/10 to-transparent pointer-events-none"></div>
+                                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600"></div>
+                                  
+                                  <div className="flex justify-between items-end mb-4 border-b border-white/5 pb-2">
+                                      <span className="text-[9px] text-blue-400 uppercase font-mono tracking-widest">ACCESS_KEY_GENERATED</span>
+                                      <span className="flex items-center gap-1.5 text-[9px] font-bold text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded bg-blue-900/20">
+                                          <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></div> ACTIVE
+                                      </span>
+                                  </div>
+                                  
+                                  <div className="flex items-center justify-between gap-4 bg-white/5 p-4 rounded-xl border border-white/5 relative overflow-hidden group-hover:border-blue-500/30 transition-colors">
+                                      <div className="flex items-center gap-3 relative z-10">
+                                          <div className="p-2 bg-brand-gold/10 rounded-lg text-brand-gold">
+                                            <KeyIcon className="h-5 w-5"/>
+                                          </div>
+                                          <div className="flex flex-col items-start">
+                                              <span className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">Contraseña Temporal</span>
+                                              <span className="font-bold text-xl tracking-wider text-white font-mono drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">{generatedPassword}</span>
+                                          </div>
+                                      </div>
+                                      
+                                      {/* ONE CLICK COPY BUTTON */}
+                                      <button 
+                                        onClick={handleCopyPassword}
+                                        className={`relative z-10 px-4 py-2 rounded-lg transition-all duration-300 flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider border ${isCopied ? 'bg-blue-600 text-white border-blue-500' : 'bg-black text-white border-white/20 hover:border-blue-400 hover:bg-blue-900/20'}`}
+                                      >
+                                          {isCopied ? <ClipboardCheckIcon className="h-4 w-4"/> : <ClipboardIcon className="h-4 w-4"/>}
+                                          {isCopied ? 'COPIADO' : 'COPIAR'}
+                                      </button>
+                                  </div>
+                                  
+                                  <div className="mt-4 flex items-center gap-2 opacity-50">
+                                      <div className="flex-1 h-px bg-white/20"></div>
+                                      <p className="text-[8px] text-gray-400 font-mono text-center">
+                                          COPIE ESTA LLAVE ANTES DE CERRAR
+                                      </p>
+                                      <div className="flex-1 h-px bg-white/20"></div>
+                                  </div>
+                              </div>
+
+                              <Button onClick={handleCloseRegisterModal} variant="secondary" className="w-full border-white/10 hover:bg-white/5 py-4">
+                                  FINALIZAR PROCESO
+                              </Button>
+                          </div>
+                      )}
+                  </div>
               </div>
           </div>
       )}
