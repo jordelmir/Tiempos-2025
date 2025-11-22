@@ -27,7 +27,10 @@ import {
   BoltIcon,
   ClockIcon,
   CreditCardIcon,
-  ArrowTrendingDownIcon
+  ArrowTrendingDownIcon,
+  SparklesIcon,
+  ClipboardIcon,
+  ArrowPathIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
@@ -61,15 +64,13 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
   const [cart, setCart] = useState<NewTicket[]>([]);
   const [error, setError] = useState('');
   
-  // Animation States
   const [isAddingToCart, setIsAddingToCart] = useState(false);
+  const [copiedTicketId, setCopiedTicketId] = useState<string | null>(null);
 
-  // Action Modal State (Purchase Confirmation)
   const [actionModal, setActionModal] = useState<{isOpen: boolean, amount: number, isReventados: boolean}>({
       isOpen: false, amount: 0, isReventados: false
   });
 
-  // Win Notification State
   const [winNotification, setWinNotification] = useState<{type: 'regular'|'reventados', amount: number, number: string, draw: string} | null>(null);
 
   const totalCost = cart.reduce((sum, item) => sum + item.amount + (item.reventadosAmount || 0), 0);
@@ -80,28 +81,22 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
     noche: 'NOCHE'
   };
 
-  // --- INTELLIGENCE ENGINE ---
-  
   const stats = useMemo(() => {
       const numCounts: Record<string, number> = {};
       let totalDraws = 0;
       let redBalls = 0;
 
-      // Analyze History
       historyResults.forEach(day => {
-          // Mediodia
           if(day.results.mediodia.number) {
               numCounts[day.results.mediodia.number] = (numCounts[day.results.mediodia.number] || 0) + 1;
               totalDraws++;
               if(day.results.mediodia.ball === 'roja') redBalls++;
           }
-          // Tarde
           if(day.results.tarde.number) {
               numCounts[day.results.tarde.number] = (numCounts[day.results.tarde.number] || 0) + 1;
               totalDraws++;
               if(day.results.tarde.ball === 'roja') redBalls++;
           }
-          // Noche
           if(day.results.noche.number) {
               numCounts[day.results.noche.number] = (numCounts[day.results.noche.number] || 0) + 1;
               totalDraws++;
@@ -109,19 +104,16 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           }
       });
 
-      // Get Top 3 "Hot" Numbers
       const hotNumbers = Object.entries(numCounts)
           .sort(([,a], [,b]) => b - a)
           .slice(0, 3)
           .map(([num, count]) => ({ num, count }));
 
-      // Calculate Red Ball Percentage
       const redBallPercentage = totalDraws > 0 ? Math.round((redBalls / totalDraws) * 100) : 0;
 
       return { hotNumbers, redBallPercentage, totalDraws };
   }, [historyResults]);
 
-  // --- RECENT TICKETS (LAST 7 DAYS & SCROLLABLE) ---
   const recentTickets = useMemo(() => {
       const now = new Date();
       const cutoffDate = new Date();
@@ -133,16 +125,13 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
   }, [user.tickets]);
 
-  // --- WINNER DETECTION SYSTEM ---
   useEffect(() => {
       const checkWinners = async () => {
-          const todayStr = new Date().toLocaleDateString('es-CR');
           const normalize = (d: Date) => d.toLocaleDateString('es-CR');
           const todayTickets = user.tickets.filter(t => normalize(new Date(t.purchaseDate)) === normalize(new Date()));
 
           if (todayTickets.length === 0 || dailyResults.length === 0) return;
 
-          // Filter only Pending tickets for claim check to avoid double processing
           const pendingTickets = todayTickets.filter(t => t.status === 'pending');
 
           pendingTickets.forEach(ticket => {
@@ -161,15 +150,9 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                       }
                   }
 
-                  // --- CLAIM PRIZE AUTOMATICALLY ---
-                  // This will update the DB. The 'status' will change to 'paid',
-                  // so this loop won't pick it up again on next render.
                   onClaimWinnings(ticket.id, winAmount, type);
-
-                  // --- SHOW NOTIFICATION ---
                   setWinNotification({ type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] });
                   
-                  // --- TRIGGER EMAIL SERVICE ---
                   sendWinnerNotification(
                       user.email, 
                       user.name, 
@@ -184,7 +167,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           });
       };
 
-      const timer = setTimeout(checkWinners, 2000); // slight delay to allow data settle
+      const timer = setTimeout(checkWinners, 2000); 
       return () => clearTimeout(timer);
   }, [dailyResults, user.tickets, user.email, user.name, onClaimWinnings]);
 
@@ -212,7 +195,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
     setIsAddingToCart(true);
 
-    // Trigger Animation delay for effect
     setTimeout(() => {
         const formattedNumber = num.toString().padStart(2, '0');
         setCart([...cart, { 
@@ -222,13 +204,17 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           reventadosAmount: playReventados ? revAmnt : undefined
         }]);
         
-        // Reset form
         setNumber('');
         setAmount('');
         setReventadosAmount('');
         setPlayReventados(false);
         setIsAddingToCart(false);
     }, 400);
+  };
+
+  const handleRandomNumber = () => {
+      const random = Math.floor(Math.random() * 100);
+      setNumber(random.toString().padStart(2, '0'));
   };
 
   const handleRemoveFromCart = (index: number) => {
@@ -241,20 +227,34 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           return;
       }
 
-      // Detect if Reventados is present in ANY ticket in the cart
       const hasReventados = cart.some(item => item.reventadosAmount && item.reventadosAmount > 0);
 
-      // Trigger Animation
       setActionModal({
           isOpen: true,
           amount: totalCost,
           isReventados: hasReventados
       });
 
-      // Process
       onPurchase(user.id, cart);
       setCart([]);
   }
+
+  const handleShareTicket = (t: Ticket) => {
+      const text = `🎟️ *TICKET TIEMPOS*\n🔢 Número: *${t.number}*\n💰 Inversión: ₡${t.amount}\n☀️ Sorteo: ${DRAW_LABELS[t.draw]}\n📅 Fecha: ${new Date(t.purchaseDate).toLocaleDateString()}\n🆔 ID: ${t.id.slice(0,8)}`;
+      navigator.clipboard.writeText(text);
+      setCopiedTicketId(t.id);
+      setTimeout(() => setCopiedTicketId(null), 2000);
+  };
+
+  const handleRepeatBet = (t: Ticket) => {
+      const newTicket: NewTicket = {
+          number: t.number,
+          amount: t.amount,
+          draw: selectedDraw, 
+          reventadosAmount: t.reventadosAmount
+      };
+      setCart([...cart, newTicket]);
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(amount);
@@ -274,7 +274,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
   return (
     <div className="space-y-8 relative">
-      {/* WINNER MODAL INTEGRATION */}
       {winNotification && (
           <WinnerModal 
             winType={winNotification.type} 
@@ -285,7 +284,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           />
       )}
 
-      {/* ACTION CONFIRMATION MODAL */}
       <ActionModal 
           isOpen={actionModal.isOpen}
           type="purchase"
@@ -295,9 +293,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
           onClose={() => setActionModal({...actionModal, isOpen: false})}
       />
 
-      {/* HERO: Live Results with Holographic Effect */}
       <section className="relative overflow-hidden rounded-3xl group">
-        {/* Hero Backlight */}
         <div className="absolute -inset-1 bg-gradient-to-b from-brand-accent/20 via-purple-500/20 to-brand-primary/20 blur-2xl opacity-50 group-hover:opacity-80 transition-opacity duration-700"></div>
         
         <div className="relative z-10 rounded-3xl border border-brand-border bg-brand-secondary/50 backdrop-blur-xl shadow-2xl animate-fade-in-up hover:border-brand-accent/30 transition-colors duration-500 p-6 md:p-8">
@@ -338,20 +334,15 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {dailyResults.map((res, idx) => {
                         const isReventado = res.ballColor === 'roja';
-                        
-                        // Individual Glow for each result card
                         const glowColor = res.draw === 'mediodia' ? 'from-orange-500/30 to-yellow-500/30' : 
                                         res.draw === 'tarde' ? 'from-purple-500/30 to-pink-500/30' : 
                                         'from-blue-500/30 to-cyan-500/30';
 
                         return (
                             <div key={res.draw} className="relative group/card" style={{ animationDelay: `${idx * 100}ms` }}>
-                                {/* Card Backlight */}
                                 <div className={`absolute -inset-0.5 bg-gradient-to-br ${glowColor} rounded-2xl blur-lg opacity-20 group-hover/card:opacity-60 transition duration-500`}></div>
 
-                                <div 
-                                    className="relative bg-brand-primary/80 rounded-2xl p-5 border border-brand-border hover:border-brand-accent/50 transition-all duration-500 overflow-hidden hover:shadow-[0_0_30px_rgba(79,70,229,0.15)] hover:-translate-y-1 h-[320px] flex flex-col backdrop-blur-md"
-                                >
+                                <div className="relative bg-brand-primary/80 rounded-2xl p-5 border border-brand-border hover:border-brand-accent/50 transition-all duration-500 overflow-hidden hover:shadow-[0_0_30px_rgba(79,70,229,0.15)] hover:-translate-y-1 h-[320px] flex flex-col backdrop-blur-md">
                                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover/card:opacity-10 transition-opacity duration-500 transform group-hover/card:scale-110">
                                         {getDrawIcon(res.draw, "h-24 w-24")}
                                     </div>
@@ -368,29 +359,20 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                     <div className="flex justify-center items-center flex-grow relative z-10">
                                         {res.number ? (
                                             isReventado ? (
-                                                /* --- SCENARIO: REVENTADO HIT (ORBITAL 3D) --- */
                                                 <div className="relative w-full h-48 flex items-center justify-center">
-                                                    
-                                                    {/* 1. The Center: Red Sun (Reventado Ball) */}
                                                     <div className="relative z-10 flex flex-col items-center">
                                                         <div className="relative w-24 h-24 flex items-center justify-center rounded-full bg-gradient-to-br from-red-500 via-red-600 to-red-800 text-white text-5xl font-black border-4 border-red-400 shadow-[0_0_50px_rgba(239,68,68,0.6)] animate-scale-pulse">
                                                             {res.reventadosNumber || res.number}
-                                                            {/* Shine */}
                                                             <div className="absolute top-3 left-4 w-6 h-4 bg-white rounded-full opacity-30 blur-[3px]"></div>
                                                         </div>
-                                                        {/* Gravity Well Effect Behind */}
                                                         <div className="absolute -inset-4 bg-red-600/20 rounded-full blur-xl animate-pulse-slow -z-10"></div>
-                                                        
                                                         <span className="text-[9px] uppercase font-bold text-red-400 mt-2 tracking-wider bg-red-900/30 px-2 py-0.5 rounded border border-red-500/20">
                                                             <FireIcon className="h-2 w-2 inline mr-0.5"/>Reventado x200
                                                         </span>
                                                     </div>
-
-                                                    {/* 2. The Orbit: Track */}
                                                     <div className="absolute w-48 h-48 rounded-full border border-white/5 animate-spin-slow pointer-events-none">
-                                                        {/* 3. The Planet: Normal White Ball (On Orbit Edge) */}
                                                         <div className="absolute -top-5 left-1/2 -translate-x-1/2">
-                                                            <div className="animate-spin-reverse"> {/* Counter-rotate to keep number upright */}
+                                                            <div className="animate-spin-reverse">
                                                                 <div className="relative flex flex-col items-center">
                                                                     <div className="w-12 h-12 flex items-center justify-center rounded-full bg-white text-brand-primary text-lg font-black border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,1)] relative overflow-hidden">
                                                                         {res.number}
@@ -400,18 +382,13 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                                             </div>
                                                         </div>
                                                     </div>
-
                                                 </div>
                                             ) : (
-                                                /* --- SCENARIO: NORMAL WIN (BIG NEON BALL) --- */
                                                 <div className="flex flex-col items-center justify-center gap-4 w-full animate-float">
-                                                    {/* Main Number Ball (Standard Size but NEONIFIED) */}
                                                     <div className="relative w-28 h-28 flex items-center justify-center rounded-full bg-gradient-to-b from-white to-gray-200 shadow-[0_0_40px_rgba(168,85,247,0.6)] text-brand-primary text-6xl font-black transform group-hover/card:scale-105 transition-transform duration-500 border-[6px] border-purple-500">
                                                         {res.number}
-                                                        {/* Shine */}
                                                         <div className="absolute top-3 left-5 w-10 h-5 bg-white rounded-full opacity-60 blur-[2px]"></div>
                                                     </div>
-                                                    
                                                     <div className="text-center">
                                                         <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-purple-400 drop-shadow-md">
                                                             BOLITA BLANCA
@@ -436,10 +413,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* LEFT COLUMN: Betting Form & History */}
         <div className="lg:col-span-8 space-y-8">
-           
-           {/* TICKET CREATOR */}
            <Card className="overflow-hidden border-brand-accent/30 shadow-2xl animate-fade-in-up" glowColor="from-brand-accent/50 via-indigo-500/50 to-blue-500/50">
                 <div className="flex items-center justify-between mb-8 border-b border-brand-border pb-4 relative z-10">
                     <div className="flex items-center gap-3">
@@ -458,12 +432,10 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 </div>
 
                 <form onSubmit={handleAddTicket} className="space-y-8 relative z-10">
-                    {/* Draw Selection */}
                     <div>
                         <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider">1. Elige el Sorteo</label>
                         <div className="grid grid-cols-3 gap-3">
                             {(['mediodia', 'tarde', 'noche'] as DrawType[]).map((type) => {
-                                // Custom glow color based on draw type
                                 const drawGlow = type === 'mediodia' ? 'from-orange-500 to-yellow-500' : 
                                                 type === 'tarde' ? 'from-purple-500 to-pink-500' : 
                                                 'from-blue-500 to-cyan-500';
@@ -475,7 +447,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                         onClick={() => setSelectedDraw(type)}
                                         className="relative group"
                                     >
-                                        {/* Draw Button Backlight */}
                                         <div className={`absolute -inset-0.5 bg-gradient-to-r ${drawGlow} rounded-xl blur opacity-0 group-hover:opacity-50 transition duration-300 ${selectedDraw === type ? 'opacity-40' : ''}`}></div>
 
                                         <div className={`
@@ -496,12 +467,15 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* Inputs */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="group">
-                            <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider group-focus-within:text-brand-accent transition-colors">2. Tu Número</label>
+                            <div className="flex justify-between items-center mb-3">
+                                <label className="block text-xs uppercase font-bold text-brand-text-secondary tracking-wider group-focus-within:text-brand-accent transition-colors">2. Tu Número</label>
+                                <button type="button" onClick={handleRandomNumber} className="text-[10px] text-brand-accent hover:text-white flex items-center gap-1 font-bold bg-brand-accent/10 hover:bg-brand-accent px-2 py-0.5 rounded-md transition-all">
+                                    <SparklesIcon className="h-3 w-3" /> Mágico
+                                </button>
+                            </div>
                             <div className="relative group/input">
-                                {/* Input Backlight */}
                                 <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-purple-500 rounded-2xl blur opacity-0 group-focus-within/input:opacity-40 transition duration-500"></div>
                                 <div className="relative">
                                     <input
@@ -520,7 +494,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                          <div className="group">
                             <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider group-focus-within:text-brand-success transition-colors">3. Monto a Apostar</label>
                             <div className="relative group/input">
-                                {/* Input Backlight */}
                                 <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-700 rounded-2xl blur opacity-0 group-focus-within/input:opacity-40 transition duration-500"></div>
                                 <div className="relative">
                                     <input
@@ -537,9 +510,7 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                     </div>
 
-                    {/* Reventados Toggle */}
                     <div className={`relative bg-gradient-to-r from-red-900/10 to-transparent border rounded-xl p-4 transition-all duration-300 group/rev ${playReventados ? 'border-red-500/50 shadow-[0_0_20px_rgba(220,38,38,0.1)]' : 'border-red-500/20'}`}>
-                        {/* Reventados Backlight */}
                         <div className={`absolute -inset-0.5 bg-red-600 rounded-xl blur opacity-0 ${playReventados ? 'opacity-20' : 'group-hover/rev:opacity-10'} transition duration-500`}></div>
                         
                         <div className="relative z-10">
@@ -580,7 +551,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                     </div>
 
                     <div className="relative group/btn">
-                        {/* Button Backlight */}
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-indigo-600 rounded-xl blur opacity-30 group-hover/btn:opacity-100 transition duration-500"></div>
                         <Button 
                             variant="primary" 
@@ -610,7 +580,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 </form>
            </Card>
 
-           {/* INTELLIGENCE HUB: HISTORY & STATISTICS */}
            <div className="space-y-6 animate-fade-in-up" style={{animationDelay: '200ms'}}>
                <div className="flex items-center justify-between">
                    <h3 className="text-xl font-black text-white flex items-center gap-2 tracking-tight">
@@ -621,11 +590,8 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                    </span>
                </div>
 
-               {/* ROW 1: PREDICTIVE STATS */}
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   {/* Hot Numbers Card */}
                    <Card className="bg-gradient-to-br from-brand-secondary to-brand-primary relative overflow-hidden border-brand-border group hover:border-yellow-500/30 transition-colors duration-500" glowColor="from-yellow-500/20 via-orange-500/20 to-yellow-500/20">
-                        {/* Background Grid */}
                         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/grid-me.png')] opacity-10"></div>
                         
                         <div className="relative z-10">
@@ -641,7 +607,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                               idx === 1 ? 'bg-brand-tertiary border-brand-text-secondary/50 hover:border-white/30' : 
                                               'bg-brand-primary border-brand-border hover:border-white/30'}
                                         `}>
-                                            {/* Individual Number Glow */}
                                             <div className={`absolute -inset-0.5 rounded-2xl blur opacity-0 group-hover/num:opacity-50 transition duration-500 ${idx === 0 ? 'bg-yellow-500 opacity-30' : 'bg-white'}`}></div>
                                             
                                             <span className={`text-3xl font-black relative z-10 ${idx === 0 ? 'text-yellow-400 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]' : 'text-white'}`}>
@@ -660,7 +625,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         </div>
                    </Card>
 
-                   {/* Reventados Probability */}
                    <Card className="bg-brand-secondary relative overflow-hidden flex items-center justify-between group hover:border-red-500/30 transition-colors" glowColor="from-red-500/20 to-red-900/20">
                        <div>
                            <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-2">Probabilidad Reventados</h4>
@@ -669,20 +633,17 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                Porcentaje histórico de aparición de la <span className="text-red-400 font-bold">Bolita Roja</span>.
                            </p>
                        </div>
-                       {/* Pure CSS Donut Chart with Glow */}
                        <div className="relative w-24 h-24 rounded-full flex items-center justify-center transition-transform group-hover:scale-105 duration-500" style={{
                            background: `conic-gradient(#EF4444 ${stats.redBallPercentage}%, #1E2332 0)`
                        }}>
                            <div className="absolute inset-2 bg-brand-secondary rounded-full flex items-center justify-center">
                                <FireIcon className="h-8 w-8 text-red-500 animate-pulse-slow"/>
                            </div>
-                           {/* Glow Ring */}
                            <div className="absolute inset-0 rounded-full shadow-[0_0_30px_rgba(239,68,68,0.5)] opacity-50 group-hover:opacity-100 transition-opacity"></div>
                        </div>
                    </Card>
                </div>
 
-               {/* ROW 2: VERTICAL TIMELINE REDESIGNED */}
                <Card glowColor="from-blue-500/20 to-cyan-500/20">
                    <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-6 flex items-center gap-2">
                        <ArrowTrendingUpIcon className="h-4 w-4" /> Timeline de Resultados
@@ -691,11 +652,9 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                    <div className="relative border-l-2 border-brand-border ml-3 space-y-8">
                        {historyResults.length > 0 ? historyResults.map((day, idx) => (
                            <div key={idx} className="relative pl-8 animate-fade-in-up" style={{animationDelay: `${idx * 100}ms`}}>
-                               {/* Timeline Dot */}
                                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-primary border-2 border-brand-accent box-content z-10 shadow-[0_0_10px_rgba(79,70,229,0.5)]"></div>
                                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-accent animate-ping opacity-40"></div>
                                
-                               {/* Content */}
                                <div className="mb-3">
                                    <span className="text-lg font-bold text-white capitalize">{new Date(day.date).toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
                                </div>
@@ -707,11 +666,9 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
 
                                        return (
                                            <div key={drawType} className="relative group/item">
-                                               {/* Item Backlight */}
                                                <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-cyan-500 rounded-xl blur opacity-0 group-hover/item:opacity-30 transition duration-500"></div>
                                                
                                                <div className="relative rounded-xl border border-brand-border overflow-hidden flex flex-col sm:flex-row h-20 group-hover/item:border-brand-accent/50 transition-colors bg-brand-primary">
-                                                   {/* Draw Label */}
                                                    <div className={`bg-brand-primary/80 w-20 flex flex-col items-center justify-center border-r border-brand-border group-hover/item:border-brand-accent/30`}>
                                                        {drawType === 'mediodia' && <SunIcon className="h-5 w-5 text-orange-400 mb-1 group-hover/item:scale-110 transition-transform"/>}
                                                        {drawType === 'tarde' && <SunsetIcon className="h-5 w-5 text-purple-400 mb-1 group-hover/item:scale-110 transition-transform"/>}
@@ -719,17 +676,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                                        <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[drawType].substring(0, 3)}</span>
                                                    </div>
 
-                                                   {/* Main Number Section - SPLIT LEFT */}
                                                    <div className="flex-1 bg-brand-secondary flex flex-col items-center justify-center border-r border-brand-border relative group-hover/item:bg-brand-tertiary transition-colors">
                                                        <span className="text-[8px] uppercase font-bold text-blue-400 absolute top-1 left-2 tracking-wider">Nuevos Tiempos</span>
                                                        <span className="font-black text-4xl text-white font-mono tracking-tighter group-hover/item:text-brand-accent transition-colors drop-shadow-lg">{result.number || '--'}</span>
                                                    </div>
 
-                                                   {/* Reventados Section - SPLIT RIGHT */}
                                                    <div className="flex-1 bg-gradient-to-br from-brand-secondary to-red-900/5 flex flex-col items-center justify-center relative">
                                                        <span className="text-[8px] uppercase font-bold text-red-400 absolute top-1 left-2 tracking-wider">Reventados</span>
                                                         <div className="flex items-center gap-2">
-                                                            {/* Ball Indicator */}
                                                             {result.ball === 'roja' ? (
                                                                 <>
                                                                     <div className="w-4 h-4 rounded-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] animate-pulse"></div>
@@ -759,10 +713,8 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
            </div>
         </div>
 
-        {/* RIGHT COLUMN: Cart & History */}
         <div className="lg:col-span-4 animate-fade-in-up space-y-6" style={{animationDelay: '300ms'}}>
             
-            {/* CART WIDGET */}
             <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)] hover:shadow-[0_0_50px_rgba(79,70,229,0.2)] transition-shadow duration-500" noPadding glowColor="from-brand-accent/50 to-purple-600/50">
                 <div className="bg-brand-accent/10 p-6 border-b border-brand-border flex justify-between items-center relative z-10">
                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -776,10 +728,9 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 <div className="p-6 relative z-10">
                     {cart.length > 0 ? (
                         <div className="space-y-4">
-                            <div className="max-h-[400px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                            <div className="h-[300px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                                 {cart.map((item, index) => (
                                     <div key={index} className="relative group/item">
-                                        {/* Cart Item Backlight */}
                                         <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-cyan-500 rounded-xl blur opacity-0 group-hover/item:opacity-40 transition duration-300"></div>
                                         
                                         <div className="relative bg-brand-tertiary/50 p-3 rounded-xl border border-brand-border flex justify-between items-center group-hover/item:border-brand-accent/50 transition-all duration-300 hover:bg-brand-tertiary animate-fade-in-up">
@@ -811,7 +762,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                     <span className="text-2xl font-black text-brand-success drop-shadow-[0_0_5px_rgba(34,197,94,0.5)]">{formatCurrency(totalCost)}</span>
                                 </div>
                                 <div className="relative group/btn">
-                                    {/* Button Backlight */}
                                     <div className="absolute -inset-0.5 bg-green-500 rounded-xl blur opacity-30 group-hover/btn:opacity-100 transition duration-500"></div>
                                     <Button 
                                         onClick={handlePurchase} 
@@ -838,16 +788,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 </div>
             </Card>
 
-            {/* TRANSACTIONS WIDGET (MOVEMENTS) */}
-            <Card className="transition-colors duration-500 max-h-[300px] flex flex-col" glowColor="from-cyan-500/20 to-blue-500/20">
+            <Card className="transition-colors duration-500 h-[300px] flex flex-col" glowColor="from-cyan-500/20 to-blue-500/20">
                 <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 shrink-0 relative z-10">
                     <CreditCardIcon className="h-4 w-4" /> Movimientos Recientes
                 </h4>
                 {transactions.length > 0 ? (
-                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-2 relative z-10">
+                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-2 relative z-10 flex-1 min-h-0">
                         {transactions.slice(0, 20).map((tx) => (
                             <div key={tx.id} className="relative group/tx">
-                                {/* Tx Backlight */}
                                 <div className={`absolute -inset-0.5 rounded-lg blur opacity-0 group-hover/tx:opacity-40 transition duration-300 ${tx.type === 'deposit' ? 'bg-green-500' : 'bg-red-500'}`}></div>
                                 
                                 <div className="relative flex items-center justify-between p-2 rounded-lg bg-brand-primary/50 border border-brand-border hover:bg-brand-tertiary transition-colors">
@@ -889,16 +837,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                 )}
             </Card>
 
-            {/* Recent User Tickets Widget - SCROLLABLE 7 DAYS MAX */}
-            <Card className="transition-colors duration-500" glowColor="from-purple-500/20 to-pink-500/20">
-                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 relative z-10">
+            <Card className="transition-colors duration-500 h-[300px] flex flex-col" glowColor="from-purple-500/20 to-pink-500/20">
+                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 relative z-10 shrink-0">
                     <TicketIcon className="h-4 w-4" /> Jugadas Recientes (7 Días)
                 </h4>
                 {recentTickets.length > 0 ? (
-                    <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2 space-y-3 relative z-10">
+                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-3 relative z-10 flex-1 min-h-0">
                         {recentTickets.map((t, idx) => (
                             <div key={t.id} className="relative group/ticket animate-fade-in-up" style={{animationDelay: `${idx * 50}ms`}}>
-                                {/* Ticket Backlight */}
                                 <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-purple-600 rounded-xl blur opacity-0 group-hover/ticket:opacity-40 transition duration-300"></div>
                                 
                                 <div className="relative flex flex-col p-3 rounded-xl bg-brand-primary/50 border border-brand-border group-hover/ticket:border-brand-accent/30 transition-all shadow-sm hover:shadow-lg hover:-translate-x-1">
@@ -924,7 +870,25 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                                             )}
                                         </div>
                                     </div>
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/ticket:opacity-10 transition-opacity">
+                                    
+                                    <div className="flex justify-end gap-2 opacity-0 group-hover/ticket:opacity-100 transition-opacity duration-200">
+                                        <button 
+                                            onClick={() => handleRepeatBet(t)}
+                                            className="text-[10px] flex items-center gap-1 bg-brand-tertiary hover:bg-brand-accent text-brand-text-secondary hover:text-white px-2 py-1 rounded transition-colors"
+                                            title="Repetir Jugada"
+                                        >
+                                            <ArrowPathIcon className="h-3 w-3" /> Repetir
+                                        </button>
+                                        <button 
+                                            onClick={() => handleShareTicket(t)}
+                                            className={`text-[10px] flex items-center gap-1 ${copiedTicketId === t.id ? 'bg-green-600 text-white' : 'bg-brand-tertiary text-brand-text-secondary hover:text-white hover:bg-green-600'} px-2 py-1 rounded transition-all`}
+                                            title="Copiar para WhatsApp"
+                                        >
+                                            <ClipboardIcon className="h-3 w-3" /> {copiedTicketId === t.id ? '¡Copiado!' : 'Copiar'}
+                                        </button>
+                                    </div>
+
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/ticket:opacity-5 transition-opacity pointer-events-none">
                                         {getDrawIcon(t.draw, "h-10 w-10")}
                                     </div>
                                 </div>
@@ -932,9 +896,11 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center py-8 opacity-50 relative z-10">
-                        <TicketIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
-                        <p className="text-xs text-brand-text-secondary">No hay jugadas recientes.</p>
+                    <div className="text-center py-8 opacity-50 relative z-10 flex-grow flex items-center justify-center">
+                        <div>
+                            <TicketIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
+                            <p className="text-xs text-brand-text-secondary">No hay jugadas recientes.</p>
+                        </div>
                     </div>
                 )}
             </Card>

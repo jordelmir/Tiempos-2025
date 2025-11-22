@@ -22,8 +22,10 @@ export interface User {
   phone: string;
   balance: number;
   role: 'admin' | 'client';
+  blocked?: boolean; // New field for security lockout
   adminId?: string; // ID of the admin who manages this user
   tickets: Ticket[];
+  createdAt?: Date; // Added for sorting new users
 }
 
 export interface DailyResult {

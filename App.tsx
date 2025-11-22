@@ -1,272 +1,183 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import type { User, Ticket, DailyResult, DrawType, BallColor, HistoryResult } from './types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from './lib/supabase';
+import type { User, Ticket, DailyResult, DrawType, BallColor, HistoryResult, Transaction } from './types';
 import { fetchOfficialData } from './utils/jpsAgent';
+import { useSupabaseData } from './hooks/useSupabaseData';
 import AdminPanel from './components/AdminPanel';
 import ClientPanel from './components/ClientPanel';
 import AuthScreen from './components/AuthScreen';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import SecurityModal from './components/SecurityModal';
-import { supabase } from './lib/supabase';
-import { useSupabaseData } from './hooks/useSupabaseData';
-import { CheckCircleIcon, CpuIcon, ExclamationTriangleIcon, ClipboardCheckIcon } from './components/icons/Icons';
+import { BoltIcon, ClipboardCheckIcon, ExclamationTriangleIcon } from './components/icons/Icons';
 
-type View = 'admin' | 'client';
+// --- DATABASE REPAIR MODAL ---
+const DatabaseFixModal = ({ error, onClose }: { error: string, onClose: () => void }) => {
+    const sqlScript = `
+-- SCRIPT V24: REPARACIÓN INTEGRAL DE PERMISOS Y BORRADO
+-- Ejecute este script en el Editor SQL de Supabase para corregir errores de eliminación.
 
-// --- ENGINE: ROBUST TIME SYSTEM ---
-const getSmartLocalISO = () => {
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    const localDate = new Date(now.getTime() - offset);
-    return localDate.toISOString().split('T')[0];
-};
+BEGIN;
 
-// --- LOGIN ANIMATION COMPONENT ---
-const LoginSequence = ({ onComplete }: { onComplete: () => void }) => {
-    const [step, setStep] = useState(0);
-    const [text, setText] = useState('INICIANDO PROTOCOLO DE SEGURIDAD...');
+-- 1. Limpiar Policies Antiguas (Evita conflictos)
+DROP POLICY IF EXISTS "Admins all tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Users own tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Users insert tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Admins all txs" ON public.transactions;
+DROP POLICY IF EXISTS "Users own txs" ON public.transactions;
+DROP POLICY IF EXISTS "Admins can delete profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can insert profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can read all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Users can read own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Admins full access profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins full access tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Admins full access txs" ON public.transactions;
 
-    useEffect(() => {
-        const steps = [
-            { t: 500, text: 'ENCRIPTANDO CONEXIÓN...' },
-            { t: 1200, text: 'VERIFICANDO CREDENCIALES...' },
-            { t: 2000, text: 'SINCRONIZANDO BASE DE DATOS...' },
-            { t: 2800, text: 'ACCESO CONCEDIDO' }
-        ];
-
-        const timers = steps.map((s, i) => 
-            setTimeout(() => {
-                setStep(i + 1);
-                setText(s.text);
-            }, s.t)
-        );
-
-        const finish = setTimeout(onComplete, 3500);
-
-        return () => {
-            timers.forEach(clearTimeout);
-            clearTimeout(finish);
-        }
-    }, [onComplete]);
-
-    return (
-        <div className="fixed inset-0 z-[9999] bg-brand-primary flex items-center justify-center text-white overflow-hidden">
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-            <div className="relative z-10 text-center p-8">
-                 <div className="relative w-32 h-32 mx-auto mb-8">
-                     <div className="absolute inset-0 rounded-full border-4 border-brand-accent/30 animate-ping"></div>
-                     <div className={`absolute inset-0 rounded-full border-4 border-t-brand-accent border-r-transparent border-b-brand-accent border-l-transparent animate-spin duration-700 ${step === 4 ? 'border-green-500' : ''}`}></div>
-                     <div className="absolute inset-4 rounded-full bg-brand-secondary flex items-center justify-center border border-white/10">
-                         {step === 4 ? (
-                             <CheckCircleIcon className="h-12 w-12 text-green-500 animate-bounce-in" />
-                         ) : (
-                             <CpuIcon className="h-12 w-12 text-brand-accent animate-pulse" />
-                         )}
-                     </div>
-                 </div>
-                 
-                 <h2 className="text-2xl font-black font-mono tracking-widest uppercase mb-2 animate-glitch">
-                     {text}
-                 </h2>
-                 
-                 <div className="w-64 h-1 bg-brand-secondary rounded-full mx-auto overflow-hidden mt-4 border border-white/10">
-                     <div 
-                        className="h-full bg-gradient-to-r from-brand-accent to-purple-500 transition-all duration-500 ease-out"
-                        style={{ width: `${(step / 4) * 100}%` }}
-                     ></div>
-                 </div>
-                 
-                 <div className="mt-8 font-mono text-[10px] text-brand-text-secondary opacity-60">
-                     TIEMPOS PRO SECURITY LAYER v4.2.1
-                 </div>
-            </div>
-        </div>
-    );
-};
-
-// --- SQL FIX COMPONENT ---
-const DatabaseFixModal = () => {
-    const sqlCode = `-- SCRIPT MAESTRO v8.0 - ESTRUCTURA & PERMISOS COMPLETOS
--- Ejecuta este script en el Editor SQL de Supabase para reparar tablas y permisos.
-
--- 1. CREACIÓN DE TABLAS (SI NO EXISTEN)
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT,
-  name TEXT,
-  role TEXT DEFAULT 'client',
-  balance DECIMAL DEFAULT 0,
-  phone TEXT,
-  cedula TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.tickets (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  number TEXT NOT NULL,
-  amount DECIMAL NOT NULL,
-  reventados_amount DECIMAL DEFAULT 0,
-  draw_type TEXT NOT NULL,
-  status TEXT DEFAULT 'pending', -- pending, paid, lost
-  purchase_date TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  type TEXT NOT NULL, -- deposit, withdraw, purchase, winnings
-  amount DECIMAL NOT NULL,
-  details TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.daily_results (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  date DATE NOT NULL,
-  draw_type TEXT NOT NULL,
-  number TEXT,
-  reventados_number TEXT,
-  ball_color TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(date, draw_type)
-);
-
--- 2. LIMPIEZA DE POLÍTICAS
-DROP POLICY IF EXISTS "profiles_select" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_update" ON public.profiles;
-DROP POLICY IF EXISTS "profiles_insert" ON public.profiles;
-
-DROP POLICY IF EXISTS "tickets_select" ON public.tickets;
-DROP POLICY IF EXISTS "tickets_insert" ON public.tickets;
-DROP POLICY IF EXISTS "tickets_update" ON public.tickets;
-
-DROP POLICY IF EXISTS "trans_select" ON public.transactions;
-DROP POLICY IF EXISTS "trans_insert" ON public.transactions;
-
--- 3. FUNCIÓN ADMIN (SECURITY DEFINER)
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = auth.uid()
-    AND role = 'admin'
-  );
-END;
-$$;
-
--- 4. APLICAR POLÍTICAS SEGURAS
-
--- PROFILES
+-- 2. Políticas de Perfiles (Admin Total + Delete)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "profiles_select" ON public.profiles FOR SELECT USING (auth.uid() = id OR public.is_admin());
-CREATE POLICY "profiles_update" ON public.profiles FOR UPDATE USING (public.is_admin() OR auth.uid() = id); -- Allow self update for now or admin
-CREATE POLICY "profiles_insert" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
--- TICKETS
+CREATE POLICY "Admins full access profiles" ON public.profiles
+FOR ALL
+USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin' );
+
+CREATE POLICY "Users read own profile" ON public.profiles
+FOR SELECT
+USING ( auth.uid() = id );
+
+-- 3. Políticas de Tickets y Transacciones
 ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "tickets_select" ON public.tickets FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
-CREATE POLICY "tickets_insert" ON public.tickets FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "tickets_update" ON public.tickets FOR UPDATE USING (public.is_admin() OR auth.uid() = user_id); -- Allow updates for status change
-
--- TRANSACTIONS
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "trans_select" ON public.transactions FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
-CREATE POLICY "trans_insert" ON public.transactions FOR INSERT WITH CHECK (auth.uid() = user_id OR public.is_admin());
 
--- DAILY RESULTS
-ALTER TABLE public.daily_results ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "results_select" ON public.daily_results;
-DROP POLICY IF EXISTS "results_write" ON public.daily_results;
-CREATE POLICY "results_select" ON public.daily_results FOR SELECT USING (true);
-CREATE POLICY "results_write" ON public.daily_results FOR ALL USING (public.is_admin());
+CREATE POLICY "Admins full access tickets" ON public.tickets 
+FOR ALL 
+USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'admin');
 
--- 5. TRIGGER DE USUARIO
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER
+CREATE POLICY "Users select own tickets" ON public.tickets 
+FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users insert own tickets" ON public.tickets 
+FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Admins full access txs" ON public.transactions 
+FOR ALL 
+USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'admin');
+
+CREATE POLICY "Users select own txs" ON public.transactions 
+FOR SELECT 
+USING (auth.uid() = user_id);
+
+-- 4. Configurar Borrado en Cascada (Clave para que funcione 'Eliminar')
+-- Esto hace que si borras el perfil, se borren tickets y transacciones automáticamente.
+DO $$
+BEGIN
+    -- Tickets
+    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'tickets_user_id_fkey') THEN
+        ALTER TABLE public.tickets DROP CONSTRAINT tickets_user_id_fkey;
+    END IF;
+    
+    ALTER TABLE public.tickets 
+    ADD CONSTRAINT tickets_user_id_fkey 
+    FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+    -- Transactions
+    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'transactions_user_id_fkey') THEN
+        ALTER TABLE public.transactions DROP CONSTRAINT transactions_user_id_fkey;
+    END IF;
+
+    ALTER TABLE public.transactions 
+    ADD CONSTRAINT transactions_user_id_fkey 
+    FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+END $$;
+
+-- 5. Función RPC para Crear Usuarios (Admin)
+CREATE OR REPLACE FUNCTION public.create_user_by_admin(
+  new_email text,
+  new_password text,
+  new_name text,
+  new_phone text,
+  new_cedula text
+) RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth, extensions
 AS $$
+DECLARE
+  new_id uuid;
+  crypted_pw text;
 BEGIN
-  INSERT INTO public.profiles (id, email, name, role, balance)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'name', 'Nuevo Usuario'),
-    COALESCE(NEW.raw_user_meta_data->>'role', 'client'),
-    0
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
+  IF (auth.jwt() -> 'user_metadata' ->> 'role') <> 'admin' THEN
+    RAISE EXCEPTION 'Permiso denegado';
+  END IF;
+
+  new_id := gen_random_uuid();
+  crypted_pw := crypt(new_password, gen_salt('bf'));
+
+  INSERT INTO auth.users (
+    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000000', new_id, 'authenticated', 'authenticated', new_email, crypted_pw, now(),
+    '{"provider": "email", "providers": ["email"]}',
+    jsonb_build_object('role', 'client', 'name', new_name),
+    now(), now()
+  );
+
+  INSERT INTO public.profiles (id, email, name, phone, cedula, role, balance, created_at)
+  VALUES (new_id, new_email, new_name, new_phone, new_cedula, 'client', 0, now())
+  ON CONFLICT (id) DO UPDATE
+  SET name = EXCLUDED.name, phone = EXCLUDED.phone, cedula = EXCLUDED.cedula;
+
+  RETURN new_id;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- 6. REALTIME
-DO $$
-DECLARE
-  t TEXT;
-BEGIN
-  FOR t IN SELECT 'profiles' UNION SELECT 'tickets' UNION SELECT 'transactions' UNION SELECT 'daily_results'
-  LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND tablename=t) THEN
-      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I;', t);
-    END IF;
-  END LOOP;
-END $$;
+COMMIT;
 `;
 
-    const copyToClipboard = () => {
-        navigator.clipboard.writeText(sqlCode);
-        alert("Script SQL Maestro v8.0 copiado. Ejecútalo en Supabase.");
-    };
-
     return (
-        <div className="fixed inset-0 z-[9999] bg-brand-primary flex items-center justify-center p-6">
-            <div className="max-w-3xl w-full bg-brand-secondary border-2 border-red-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(220,38,38,0.3)] relative overflow-hidden max-h-[90vh] flex flex-col">
-                <div className="absolute top-0 left-0 w-full h-2 bg-red-500 animate-pulse"></div>
-                
-                <div className="flex items-center gap-4 mb-4 shrink-0">
-                    <ExclamationTriangleIcon className="h-12 w-12 text-red-500" />
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+            <div className="w-full max-w-4xl bg-[#0f172a] border-2 border-red-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(239,68,68,0.3)] overflow-hidden flex flex-col max-h-[90vh] animate-bounce-in">
+                <div className="flex items-start gap-4 mb-6">
+                    <div className="p-4 bg-red-900/30 rounded-full border border-red-500 animate-pulse">
+                        <BoltIcon className="h-10 w-10 text-red-500" />
+                    </div>
                     <div>
-                        <h2 className="text-2xl font-black text-white uppercase">Reparación de Base de Datos</h2>
-                        <p className="text-red-400 font-mono text-sm">ERROR CRÍTICO: TABLAS FALTANTES O PERMISOS</p>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-widest">Reparación de Sistema (v24)</h2>
+                        <p className="text-red-400 font-mono mt-2 text-sm bg-red-950/50 p-2 rounded border border-red-900">
+                            {error}
+                        </p>
                     </div>
                 </div>
                 
-                <p className="text-brand-text-secondary mb-4 text-sm shrink-0">
-                    Si los movimientos no se reflejan, es probable que falte la tabla <code>transactions</code> o los permisos.
-                    <br/>
-                    <b>Solución:</b> Ejecute este script v8.0 que crea todas las tablas necesarias y corrige los permisos.
-                </p>
-                
-                <div className="relative bg-black p-4 rounded-lg border border-brand-border mb-6 group flex-grow overflow-hidden flex flex-col">
-                    <button 
-                        onClick={copyToClipboard}
-                        className="absolute top-4 right-4 bg-brand-accent hover:bg-brand-accent-hover text-white px-4 py-2 rounded shadow-lg text-xs font-bold flex items-center gap-2 transition-all z-10"
-                    >
-                        <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT v8.0
-                    </button>
-                    <pre className="text-[10px] md:text-xs text-green-400 font-mono overflow-y-auto custom-scrollbar whitespace-pre flex-grow p-2">
-                        {sqlCode}
+                <div className="bg-blue-900/20 border border-blue-600/30 p-4 rounded-lg mb-6 text-blue-200 text-sm">
+                    <strong>DIAGNÓSTICO:</strong> Fallo crítico en permisos o integridad referencial. El Script V24 reestablece todas las políticas de seguridad y activa el "Borrado en Cascada" para eliminar usuarios limpiamente.
+                </div>
+
+                <div className="relative flex-grow overflow-hidden rounded-xl border border-gray-700 bg-[#020617]">
+                    <div className="absolute top-0 left-0 right-0 bg-[#1e293b] px-4 py-2 flex justify-between items-center border-b border-gray-700">
+                        <span className="text-xs font-mono text-gray-400">full_repair_v24.sql</span>
+                        <button 
+                            onClick={() => navigator.clipboard.writeText(sqlScript)}
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors"
+                        >
+                            <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT
+                        </button>
+                    </div>
+                    <pre className="p-4 pt-12 text-[10px] sm:text-xs text-green-400 font-mono overflow-auto h-full custom-scrollbar whitespace-pre-wrap">
+                        {sqlScript}
                     </pre>
                 </div>
-                
-                <div className="flex justify-end shrink-0">
-                    <button 
-                        onClick={() => window.location.reload()} 
-                        className="bg-brand-tertiary hover:bg-brand-primary border border-brand-border text-white px-6 py-3 rounded-xl font-bold text-sm transition-colors"
-                    >
-                        Ya ejecuté el SQL, Reiniciar App
+
+                <div className="mt-6 flex justify-end gap-4">
+                    <button onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors">
+                        Cancelar
+                    </button>
+                    <button onClick={onClose} className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg transition-colors">
+                        He ejecutado el Script v24
                     </button>
                 </div>
             </div>
@@ -274,460 +185,475 @@ END $$;
     );
 };
 
-const App: React.FC = () => {
-  // --- SYSTEM CLOCK & AUTO-RENEWAL ---
-  const [todayISO, setTodayISO] = useState(getSmartLocalISO());
-
-  useEffect(() => {
-      const timer = setInterval(() => {
-          const current = getSmartLocalISO();
-          if (current !== todayISO) {
-              console.log(`[SYSTEM] Day change detected: ${todayISO} -> ${current}. Renewing dashboard.`);
-              setTodayISO(current);
-          }
-      }, 60000); 
-      return () => clearInterval(timer);
-  }, [todayISO]);
-
-  // --- SUPABASE AUTH ---
+function App() {
   const [session, setSession] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [showLoginAnim, setShowLoginAnim] = useState(false);
+  const [view, setView] = useState<'admin' | 'client'>('client');
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  // New state to control the Fix Modal specifically
+  const [showFixModal, setShowFixModal] = useState(false);
+  const [fixModalError, setFixModalError] = useState('');
 
+  // Check Auth State on Mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // --- DATA HOOK ---
-  const { users, transactions, dbDailyResults, loading: dataLoading, error: supabaseError, refresh, optimisticUpdateResult } = useSupabaseData(session?.user?.id || null);
-
-  // Derived State
-  const currentUserId = session?.user?.id;
-  const currentUser = useMemo(() => users.find(u => u.id === currentUserId), [users, currentUserId]);
-  
-  const [view, setView] = useState<View>('client');
-  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
-
-  // Filter transactions for the current user (Client View)
-  const userTransactions = useMemo(() => {
-      if (!currentUser) return [];
-      return transactions.filter(t => t.userId === currentUser.id);
-  }, [transactions, currentUser]);
-
-  // Game State
-  const [jpsResults, setJpsResults] = useState<DailyResult[]>([]); 
-  const [historyResults, setHistoryResults] = useState<HistoryResult[]>([]);
-  const [nextDrawTime, setNextDrawTime] = useState<string>('Calculando...');
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  // --- HYBRID DATA MERGE (THE SOURCE OF TRUTH) ---
-  const effectiveDailyResults = useMemo(() => {
-      const draws: DrawType[] = ['mediodia', 'tarde', 'noche'];
-
-      return draws.map(drawType => {
-          // 1. Check Database (Admin Override) - STRICT MATCH on Date & Draw
-          const adminEntry = dbDailyResults.find(
-              r => r.date === todayISO && r.draw === drawType
-          );
-
-          if (adminEntry) {
-              return { ...adminEntry, source: 'admin' }; 
-          }
-
-          // 2. Check JPS Agent (Fallback)
-          const agentEntry = jpsResults.find(r => r.draw === drawType);
-          if (agentEntry && agentEntry.number) {
-              return { ...agentEntry, date: todayISO, source: 'agent' };
-          }
-
-          // 3. Return Empty/Pending State (Default)
-          return {
-              date: todayISO,
-              draw: drawType,
-              number: null,
-              reventadosNumber: null,
-              ballColor: null
-          };
+      supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+          if(session?.user?.user_metadata?.role === 'admin') setView('admin');
+          setAuthChecking(false);
       });
-  }, [jpsResults, dbDailyResults, todayISO]);
 
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSession(session);
+          if(session?.user?.user_metadata?.role === 'admin') setView('admin');
+          else if(session) setView('client');
+      });
 
-  // Set View based on Role
-  useEffect(() => {
-    if (currentUser) {
-      setView(currentUser.role === 'admin' ? 'admin' : 'client');
-    }
-  }, [currentUser]);
-
-  // JPS Data Fetching (Poller)
-  useEffect(() => {
-    const loadJPSData = async () => {
-        setIsSyncing(true);
-        try {
-            const data = await fetchOfficialData();
-            setJpsResults(data.today);
-            setNextDrawTime(data.nextDraw);
-            setHistoryResults(data.history);
-        } catch (e) {
-            console.error("Error fetching data", e);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-    loadJPSData();
-    const interval = setInterval(loadJPSData, 300000); // 5 minutes
-    return () => clearInterval(interval);
+      return () => subscription.unsubscribe();
   }, []);
 
+  // Fetch Data Hook
+  const { users, transactions, dbDailyResults, loading, error, refresh, optimisticUpdateResult, optimisticAddUser, optimisticUpdateUser, optimisticDeleteUser } = useSupabaseData(session?.user.id);
+
+  // Handle global errors (like RLS recursion)
+  useEffect(() => {
+      if (error) {
+          const lowerErr = error.toLowerCase();
+          if (lowerErr.includes('recursion') || lowerErr.includes('policy') || lowerErr.includes('permission')) {
+              setFixModalError(error);
+              setShowFixModal(true);
+          }
+      }
+  }, [error]);
+
+  // --- JPS AUTO-SYNC ENGINE ---
+  useEffect(() => {
+      if (session?.user?.user_metadata?.role !== 'admin') return;
+
+      const syncJPS = async () => {
+          console.log("🤖 [AUTO-SYNC] Buscando resultados oficiales JPS...");
+          try {
+              const { today } = await fetchOfficialData();
+              
+              let hasUpdates = false;
+              for (const res of today) {
+                  if (!res.number) continue;
+
+                  const resDateStr = new Date(res.date).toLocaleDateString('es-CR');
+                  
+                  const existing = dbDailyResults.find(r => {
+                      const dbDateStr = new Date(r.date).toLocaleDateString('es-CR');
+                      return r.draw === res.draw && dbDateStr === resDateStr;
+                  });
+
+                  if (!existing || existing.number !== res.number) {
+                       console.log(`✨ [NEW RESULT] Sorteo ${res.draw}: ${res.number} (Bolita: ${res.ballColor})`);
+                       
+                       const { error: upsertError } = await supabase.from('daily_results').upsert({
+                           date: new Date(res.date).toISOString(),
+                           draw_type: res.draw,
+                           number: res.number,
+                           reventados_number: res.reventadosNumber,
+                           ball_color: res.ballColor
+                       }, { onConflict: 'date, draw_type' });
+
+                       if (!upsertError) hasUpdates = true;
+                  }
+              }
+
+              if (hasUpdates) {
+                  console.log("✅ [SYNC COMPLETE] Base de datos actualizada.");
+                  refresh();
+              }
+          } catch (e) {
+              console.warn("⚠️ [SYNC FAILED] No se pudo conectar con JPS (Reintentando luego...)", e);
+          }
+      };
+
+      const interval = setInterval(syncJPS, 60000 * 5); 
+      syncJPS();
+
+      return () => clearInterval(interval);
+  }, [session, dbDailyResults, refresh]);
+
+  // --- DATA PROCESSING ---
+  
+  const currentUser = useMemo(() => {
+      if (!session || !users.length) return null;
+      return users.find(u => u.id === session.user.id) || null;
+  }, [session, users]);
+
+  const processedHistory = useMemo(() => {
+      const groups: Record<string, HistoryResult> = {};
+      
+      dbDailyResults.forEach(r => {
+          const dateObj = new Date(r.date);
+          const dateKey = dateObj.toLocaleDateString('es-CR');
+          
+          if (!groups[dateKey]) {
+              groups[dateKey] = {
+                  date: r.date,
+                  results: {
+                      mediodia: { number: '', reventadosNumber: '', ball: 'blanca' },
+                      tarde: { number: '', reventadosNumber: '', ball: 'blanca' },
+                      noche: { number: '', reventadosNumber: '', ball: 'blanca' }
+                  }
+              };
+          }
+          
+          if (r.draw) {
+              groups[dateKey].results[r.draw] = {
+                  number: r.number || '',
+                  reventadosNumber: r.reventadosNumber || '',
+                  ball: r.ballColor || 'blanca'
+              };
+          }
+      });
+
+      return Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [dbDailyResults]);
+
+  const nextDrawTime = useMemo(() => {
+      const now = new Date();
+      const h = now.getHours();
+      if (h < 13) return "12:55 PM";
+      if (h < 16 || (h === 16 && now.getMinutes() < 30)) return "4:30 PM";
+      return "7:30 PM";
+  }, []);
 
   // --- ACTIONS ---
-
-  const handleLogin = async (email: string, passwordInput: string): Promise<{ error: any; data: any }> => {
-    setShowLoginAnim(true);
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password: passwordInput,
-    });
-    if (error) setShowLoginAnim(false);
-    return { error, data };
+  const handleLogin = async (e: string, p: string) => {
+      return await supabase.auth.signInWithPassword({ email: e, password: p });
   };
 
-  const handleRegister = async (userData: Partial<User>, role: 'admin' | 'client'): Promise<{ error: any; data: any }> => {
-    const { data, error } = await supabase.auth.signUp({
-        email: userData.email!,
-        password: userData.password!,
-        options: {
-            // Include extended metadata here so the trigger can use it, 
-            // and data isn't lost if the immediate update fails due to RLS.
-            data: { 
-                name: userData.name, 
-                role: role,
-                phone: userData.phone,
-                cedula: userData.cedula
-            } 
-        }
-    });
-
-    if (error && error.message.toLowerCase().includes('already registered')) {
-        return handleLogin(userData.email!, userData.password!);
-    }
-
-    if (error) return { error, data };
-
-    if (data.user) {
-        // Only attempt to update profile if we have a session.
-        // If session is null (email confirmation pending), RLS will block the update.
-        if (data.session) {
-            const { error: profileError } = await supabase.from('profiles').update({
-                phone: userData.phone,
-                cedula: userData.cedula
-            }).eq('id', data.user.id);
-            
-            if (profileError) {
-                console.error("Profile Update Warning:", profileError.message || profileError);
-            } else {
-                setShowLoginAnim(true);
-            }
-        } else {
-            // Session not yet active (e.g. email verify required). 
-            // Data is safe in user_metadata for the trigger or future updates.
-            console.log("Registration successful. Session pending verification.");
-        }
-        
-        refresh(); 
-    }
-    
-    return { error: null, data };
+  const handleRegister = async (data: Partial<User>, role: 'admin' | 'client') => {
+      return await supabase.auth.signUp({
+          email: data.email,
+          password: data.password!,
+          options: {
+              data: {
+                  name: data.name,
+                  phone: data.phone,
+                  role: role, 
+                  balance: 0,
+                  cedula: data.cedula || ''
+              }
+          }
+      });
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+      await supabase.auth.signOut();
+      setView('client');
   };
 
+  // Admin Actions
   const handleRecharge = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
-      if (!user) return;
+      if(!user) return;
+      
+      const newBalance = user.balance + amount;
+      
+      // 1. Optimistic Update (Instant Feedback)
+      optimisticUpdateUser(userId, { balance: newBalance });
 
-      const { error } = await supabase.from('transactions').insert({
+      // 2. DB Update
+      const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+
+      if (error) {
+          console.error("Error recargando saldo:", error);
+          // Trigger repair modal if permission denied
+          if (error.message.includes('policy') || error.message.includes('permission')) {
+             setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V24.`);
+             setShowFixModal(true);
+          }
+          refresh();
+          return;
+      }
+
+      await supabase.from('transactions').insert({
           user_id: userId,
           type: 'deposit',
           amount: amount,
-          details: 'Recarga Admin'
+          details: 'Recarga administrativa'
       });
-      if(error) alert(`Error transaccion: ${error.message}`);
-
-      const { error: balError } = await supabase.from('profiles').update({
-          balance: user.balance + amount
-      }).eq('id', userId);
-      if(balError) alert(`Error balance: ${balError.message}`);
       
       refresh();
   };
 
   const handleWithdraw = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
-      if (!user || user.balance < amount) return;
+      if(!user) return;
 
-      const { error } = await supabase.from('transactions').insert({
-          user_id: userId,
-          type: 'withdraw',
-          amount: amount,
-          details: 'Retiro Fondos'
-      });
-      if(error) alert(`Error transaccion: ${error.message}`);
+      const newBalance = user.balance - amount;
+      if(newBalance < 0) return;
 
-      const { error: balError } = await supabase.from('profiles').update({
-          balance: user.balance - amount
-      }).eq('id', userId);
-      if(balError) alert(`Error balance: ${balError.message}`);
+      // 1. Optimistic Update
+      optimisticUpdateUser(userId, { balance: newBalance });
+
+      const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
       
-      refresh();
-  };
-
-  const handlePurchase = async (userId: string, newTickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => {
-      const user = users.find(u => u.id === userId);
-      if (!user) return;
-
-      const totalCost = newTickets.reduce((sum, t) => sum + t.amount + (t.reventadosAmount || 0), 0);
-      
-      if (user.balance < totalCost) {
-        alert('Saldo insuficiente');
-        return;
-      }
-
-      // 1. Deduct Balance
-      const { error: balError } = await supabase.from('profiles').update({
-          balance: user.balance - totalCost
-      }).eq('id', userId);
-
-      if (balError) {
-          console.error("Balance Update Failed", balError);
-          alert("Error al descontar saldo. Intente de nuevo.");
+      if (error) {
+          console.error("Error retirando saldo:", error);
+          if (error.message.includes('policy') || error.message.includes('permission')) {
+             setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V24.`);
+             setShowFixModal(true);
+          }
+          refresh();
           return;
       }
 
-      // 2. Record Transaction
-      const { error: txError } = await supabase.from('transactions').insert({
+      await supabase.from('transactions').insert({
           user_id: userId,
-          type: 'purchase',
-          amount: totalCost,
-          details: `Compra: ${newTickets.length} jugadas`
+          type: 'withdraw',
+          amount: amount,
+          details: 'Retiro de fondos'
       });
-      if (txError) console.error("Transaction Log Failed", txError);
+      refresh();
+  };
 
-      // 3. Create Tickets
-      const dbTickets = newTickets.map(t => ({
+  const handleUpdateResult = async (draw: DrawType, number: string | null, ballColor: BallColor | null, reventados: string | null) => {
+      const existing = dbDailyResults.find(r => r.draw === draw && new Date(r.date).toLocaleDateString() === new Date().toLocaleDateString());
+      
+      if(existing) {
+           const { error } = await supabase.from('daily_results').update({
+               number, ball_color: ballColor, reventados_number: reventados
+           }).eq('id', existing.id);
+           if(!error) optimisticUpdateResult({ ...existing, number, ballColor, reventadosNumber: reventados });
+           return !error;
+      } else {
+           const { error } = await supabase.from('daily_results').insert({
+               date: new Date().toISOString(),
+               draw_type: draw,
+               number,
+               ball_color: ballColor,
+               reventados_number: reventados
+           });
+           refresh();
+           return !error;
+      }
+  };
+
+  const handleRegisterClient = async (userData: Partial<User>) => {
+      // Use the V24 RPC function to create user as Admin
+      const { data, error } = await supabase.rpc('create_user_by_admin', {
+          new_email: userData.email,
+          new_password: userData.password,
+          new_name: userData.name,
+          new_phone: userData.phone,
+          new_cedula: userData.cedula
+      });
+
+      if (error) {
+          console.error("Error creating user:", error);
+          const msg = error.message.toLowerCase();
+
+          if (msg.includes('function') && msg.includes('create_user_by_admin')) {
+               setFixModalError("Falta la función 'create_user_by_admin'. Ejecute el Script v24.");
+               setShowFixModal(true);
+               return { error: { message: "Falta configuración DB. Ver modal." }, data: null };
+          }
+
+          if (msg.includes('full_name') || msg.includes('column')) {
+              setFixModalError("Conflicto de columnas. Ejecute el Script v24.");
+              setShowFixModal(true);
+              return { error: { message: "Conflicto de base de datos. Ver modal." }, data: null };
+          }
+
+          return { error, data: null };
+      }
+
+      // --- OPTIMISTIC UPDATE START ---
+      if (data) {
+          const optimUser: User = {
+              id: data, // The UUID returned by RPC
+              email: userData.email || '',
+              name: userData.name || 'Nuevo Usuario',
+              cedula: userData.cedula || '',
+              phone: userData.phone || '',
+              role: 'client',
+              balance: 0,
+              tickets: [],
+              password: '', // Internal use only
+              createdAt: new Date() 
+          };
+          optimisticAddUser(optimUser);
+      }
+      // --- OPTIMISTIC UPDATE END ---
+      
+      setTimeout(() => { refresh(); }, 1500); 
+      return { data: { user: { id: data }, session: null }, error: null };
+  };
+
+  const handleToggleBlock = async (userId: string, currentStatus: boolean) => {
+      optimisticUpdateUser(userId, { blocked: !currentStatus });
+      const { error } = await supabase.from('profiles').update({ blocked: !currentStatus }).eq('id', userId);
+      if(!error) refresh();
+      return !error;
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+      // 1. Optimistic Delete (Visual feedback first)
+      optimisticDeleteUser(userId);
+
+      try {
+          // 2. Attempt cascading delete manually first (safest approach if cascade is missing)
+          // Ignore errors here to allow profile delete to try its best
+          await supabase.from('transactions').delete().eq('user_id', userId);
+          await supabase.from('tickets').delete().eq('user_id', userId);
+
+          // 3. Delete profile (This is the critical step)
+          const { error } = await supabase.from('profiles').delete().eq('id', userId);
+          
+          if (error) throw error;
+
+          refresh();
+          return true;
+
+      } catch (error: any) {
+          console.error("Error deleting user:", error);
+          
+          // Show repair modal for any error to be safe
+          setFixModalError(`Error de Eliminación: ${error.message || error}. Ejecute Script V24.`);
+          setShowFixModal(true);
+          
+          refresh(); // Revert optimistic delete by re-fetching if failed
+          return false;
+      }
+  };
+
+  // Client Actions
+  const handlePurchase = async (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => {
+      const totalCost = tickets.reduce((sum, t) => sum + t.amount + (t.reventadosAmount || 0), 0);
+      
+      const user = users.find(u => u.id === userId);
+      if(!user || user.balance < totalCost) return;
+
+      const newBalance = user.balance - totalCost;
+      
+      // Optimistic update for client view
+      optimisticUpdateUser(userId, { balance: newBalance });
+
+      await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+
+      const ticketsToInsert = tickets.map(t => ({
           user_id: userId,
           number: t.number,
           amount: t.amount,
           reventados_amount: t.reventadosAmount || 0,
           draw_type: t.draw,
-          status: 'pending'
+          status: 'pending',
+          purchase_date: new Date().toISOString()
       }));
+      await supabase.from('tickets').insert(ticketsToInsert);
 
-      const { error: tickError } = await supabase.from('tickets').insert(dbTickets);
-      if (tickError) {
-          console.error("Ticket Creation Failed", tickError);
-          alert("Error creando tiquetes. Contacte soporte.");
-      } else {
+      await supabase.from('transactions').insert({
+          user_id: userId,
+          type: 'purchase',
+          amount: totalCost,
+          details: `Compra ${tickets.length} tickets`
+      });
+      refresh();
+  };
+
+  const handleClaimWinnings = async (ticketId: string, amount: number, type: 'regular' | 'reventados') => {
+      await supabase.from('tickets').update({ status: 'paid' }).eq('id', ticketId);
+      
+      const user = currentUser;
+      if(user) {
+          const newBalance = user.balance + amount;
+          optimisticUpdateUser(user.id, { balance: newBalance });
+
+          await supabase.from('profiles').update({ balance: newBalance }).eq('id', user.id);
+          
+          await supabase.from('transactions').insert({
+              user_id: user.id,
+              type: 'winnings',
+              amount: amount,
+              details: `Premio ${type === 'reventados' ? 'REVENTADO' : ''} Ticket #${ticketId.slice(0,4)}`
+          });
           refresh();
       }
   };
 
-  // --- WINNINGS HANDLER (NEW) ---
-  const handleClaimWinnings = async (ticketId: string, amount: number, winType: 'regular' | 'reventados') => {
-      if (!currentUserId) return;
-
-      // 1. Atomic Check & Set Status (Prevent Double Pay)
-      // We try to update the ticket from 'pending' to 'paid'. 
-      // If the ticket is already 'paid', this update will return 0 rows, and we stop.
-      const { data, error } = await supabase
-          .from('tickets')
-          .update({ status: 'paid' })
-          .eq('id', ticketId)
-          .eq('status', 'pending')
-          .select();
-
-      if (error) {
-          console.error("Error claiming prize:", error);
-          return;
-      }
-
-      if (!data || data.length === 0) {
-          console.log("Ticket already processed or invalid.");
-          return; // Exit if no row was updated (idempotency)
-      }
-
-      const ticketNumber = data[0].number;
-
-      // 2. Update Balance
-      const user = users.find(u => u.id === currentUserId);
-      if(!user) return;
-      
-      const { error: balError } = await supabase.from('profiles').update({
-          balance: user.balance + amount
-      }).eq('id', currentUserId);
-
-      if (balError) console.error("Balance Update Failed (Winnings)", balError);
-
-      // 3. Create 'Winnings' Transaction
-      const { error: txError } = await supabase.from('transactions').insert({
-          user_id: currentUserId,
-          type: 'winnings',
-          amount: amount,
-          details: `Premio ${winType === 'reventados' ? 'Reventado' : 'Regular'} - Ticket #${ticketNumber}`
-      });
-
-      if (txError) console.error("Transaction Log Failed (Winnings)", txError);
-
-      console.log(`Prize claimed: ${amount}`);
-      refresh();
-  };
-
-
-  const handleManualResultUpdate = async (draw: DrawType, number: string | null, ballColor: BallColor | null, rev: string | null) => {
-      const todayStr = getSmartLocalISO();
-      console.log(`[ADMIN UPDATE] Locking result for ${todayStr} - ${draw}: ${number}`);
-
-      // Optimistic UI
-      optimisticUpdateResult({
-          date: todayStr,
-          draw: draw,
-          number: number,
-          reventadosNumber: rev,
-          ballColor: ballColor
-      });
-
-      // DB Upsert
-      const { error } = await supabase
-          .from('daily_results')
-          .upsert({
-              date: todayStr,
-              draw_type: draw,
-              number: number,
-              reventados_number: rev,
-              ball_color: ballColor
-          }, { onConflict: 'date, draw_type' });
-
-      if (error) {
-          console.error("Error updating result:", error);
-          alert(`Error guardando resultado: ${error.message}`);
-      } else {
-          refresh(); 
-      }
-  };
-
-  const handleHistoryUpdate = async (dateStr: string, res: any) => {
-      const updates = [];
-      if (res.mediodia.number) updates.push({ date: dateStr, draw_type: 'mediodia', number: res.mediodia.number, reventados_number: res.mediodia.reventadosNumber, ball_color: res.mediodia.ball });
-      if (res.tarde.number) updates.push({ date: dateStr, draw_type: 'tarde', number: res.tarde.number, reventados_number: res.tarde.reventadosNumber, ball_color: res.tarde.ball });
-      if (res.noche.number) updates.push({ date: dateStr, draw_type: 'noche', number: res.noche.number, reventados_number: res.noche.reventadosNumber, ball_color: res.noche.ball });
-
-      if (updates.length > 0) {
-          const { error } = await supabase
-              .from('daily_results')
-              .upsert(updates, { onConflict: 'date, draw_type' });
-          if (error) console.error("History update failed", error);
-          else refresh();
-      }
-  };
-
-  const handleForceReset = (userId: string) => {
-      alert("Para resetear contraseña real se requiere Backend Function (Edge Function).");
-  };
-
-  if (authLoading) {
-       return <div className="min-h-screen bg-brand-primary flex items-center justify-center text-brand-accent animate-pulse">CARGANDO SISTEMA...</div>;
-  }
-
-  // --- CRITICAL ERROR GUARD ---
-  // Detect infinite recursion specifically or general unexpected recursion
-  if (supabaseError && (supabaseError.toLowerCase().includes("infinite recursion") || supabaseError.toLowerCase().includes("recursion") || supabaseError.toLowerCase().includes("policy") || supabaseError.toLowerCase().includes("relation"))) {
-      return <DatabaseFixModal />;
+  if (authChecking) {
+      return (
+          <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
+              <div className="relative w-24 h-24">
+                  <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
+                  <BoltIcon className="absolute inset-0 m-auto h-8 w-8 text-indigo-500 animate-pulse"/>
+              </div>
+          </div>
+      );
   }
 
   return (
-    <div className="min-h-screen bg-brand-primary text-brand-text-primary flex flex-col">
-      {/* ANIMATION LAYER */}
-      {showLoginAnim && <LoginSequence onComplete={() => setShowLoginAnim(false)} />}
-
-      <SecurityModal isOpen={isSecurityModalOpen} onClose={() => setIsSecurityModalOpen(false)} />
+    <>
+      {showFixModal && (
+          <DatabaseFixModal error={fixModalError} onClose={() => setShowFixModal(false)} />
+      )}
 
       {!session ? (
         <AuthScreen 
             onLogin={handleLogin} 
-            onRegister={handleRegister}
-            onVerifyIdentity={() => true} 
-            onVerifyCode={() => true} 
-            onResetPassword={() => alert("Revise su correo para el enlace de recuperación.")}
-            onOpenSecurity={() => setIsSecurityModalOpen(true)}
+            onRegister={handleRegister} 
+            onOpenSecurity={() => setShowSecurity(true)}
         />
       ) : (
-        <>
-          {currentUser ? (
-            <>
-                <Header view={view} setView={setView} currentUser={currentUser} onLogout={handleLogout} />
-                <main className="flex-grow container mx-auto p-4 md:p-8">
-                    {view === 'admin' && currentUser.role === 'admin' ? (
+        <div className="min-h-screen bg-brand-primary pb-12 relative overflow-hidden">
+             <div className="fixed inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 pointer-events-none"></div>
+             <div className="fixed -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full bg-brand-accent/5 blur-[100px] pointer-events-none"></div>
+
+             <Header 
+                view={view} 
+                setView={setView} 
+                currentUser={currentUser || { id: 'ghost', name: 'Cargando...', email: '', role: 'client', balance: 0, phone: '', password: '', tickets: [] }} 
+                onLogout={handleLogout} 
+             />
+             
+             <main className="container mx-auto px-4 pt-8 relative z-10">
+                {view === 'admin' && currentUser?.role === 'admin' ? (
                     <AdminPanel 
                         currentUser={currentUser}
-                        users={users} 
-                        dailyResults={effectiveDailyResults} 
-                        historyResults={historyResults}
+                        users={users}
                         transactions={transactions}
-                        onRecharge={handleRecharge} 
+                        dailyResults={dbDailyResults}
+                        historyResults={processedHistory}
+                        onRecharge={handleRecharge}
                         onWithdraw={handleWithdraw}
-                        onUpdateResult={handleManualResultUpdate}
-                        onUpdateHistory={handleHistoryUpdate}
-                        onRegisterClient={(data) => handleRegister(data, 'client')}
-                        onForceResetPassword={handleForceReset}
+                        onUpdateResult={handleUpdateResult}
+                        onUpdateHistory={() => {}}
+                        onRegisterClient={handleRegisterClient}
+                        onForceResetPassword={() => {}}
+                        onToggleBlock={handleToggleBlock}
+                        onDeleteUser={handleDeleteUser}
                     />
-                    ) : (
+                ) : currentUser ? (
                     <ClientPanel 
-                        user={currentUser} 
-                        transactions={userTransactions}
-                        onPurchase={handlePurchase} 
-                        dailyResults={effectiveDailyResults} 
-                        historyResults={historyResults}
+                        user={currentUser}
+                        transactions={transactions.filter(t => t.userId === currentUser.id)}
+                        dailyResults={dbDailyResults}
+                        historyResults={processedHistory}
                         nextDrawTime={nextDrawTime}
-                        isSyncing={isSyncing}
+                        isSyncing={loading}
+                        onPurchase={handlePurchase}
                         onClaimWinnings={handleClaimWinnings}
                     />
-                    )}
-                </main>
-            </>
-          ) : (
-              <div className="flex-grow flex items-center justify-center flex-col gap-4">
-                 <div className="text-brand-accent animate-pulse">Sincronizando perfil...</div>
-                 {supabaseError && (
-                     <div className="text-red-500 text-sm bg-red-900/20 p-2 rounded border border-red-900/50">
-                         {supabaseError}
-                     </div>
-                 )}
-              </div>
-          )}
-          
-          <div className="container mx-auto px-4 py-2 text-center">
-               <button onClick={() => setIsSecurityModalOpen(true)} className="text-[10px] text-brand-text-secondary/50 hover:text-brand-accent uppercase font-bold tracking-widest transition-colors">
-                 🔒 Sistema Protegido por TiemposPRO Shield™
-               </button>
-          </div>
-          <Footer />
-        </>
+                ) : (
+                    <div className="text-center py-20">
+                        <div className="animate-spin h-10 w-10 border-4 border-brand-accent border-t-transparent rounded-full mx-auto mb-4"></div>
+                        <p className="text-brand-text-secondary">Sincronizando perfil...</p>
+                    </div>
+                )}
+             </main>
+             
+             <Footer />
+        </div>
       )}
-    </div>
+
+      <SecurityModal isOpen={showSecurity} onClose={() => setShowSecurity(false)} />
+    </>
   );
-};
+}
 
 export default App;
