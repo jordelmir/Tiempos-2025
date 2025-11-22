@@ -11,133 +11,64 @@
       tailwind.config = {
         theme: {
           extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+            },
             colors: {
-              'brand-primary': '#0B0F19',   // Deepest space blue
-              'brand-secondary': '#121622', // Card background
-              'brand-tertiary': '#1E2332',  // Hover/Active states
-              'brand-accent': '#4F46E5',    // Indigo-600
-              'brand-accent-hover': '#6366F1', // Indigo-500
-              'brand-accent-glow': 'rgba(79, 70, 229, 0.5)',
+              'brand-primary': '#030508',   
+              'brand-secondary': '#0B101B', 
+              'brand-tertiary': '#151B2D',  
+              
+              'brand-accent': '#6366F1',    
+              'brand-cyan': '#06B6D4',      
+              'brand-pink': '#EC4899',      
+              'brand-success': '#10B981',   
+              'brand-danger': '#EF4444',    
+              'brand-gold': '#F59E0B',      
+              
               'brand-border': 'rgba(255,255,255,0.08)',
               'brand-text-primary': '#F8FAFC',
               'brand-text-secondary': '#94A3B8',
-              'brand-success': '#10B981',
-              'brand-danger': '#EF4444',
-              'brand-gold': '#F59E0B',
             },
             backgroundImage: {
-              'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-              'hero-glow': 'conic-gradient(from 180deg at 50% 50%, #1e293b 0deg, #0f172a 360deg)',
+              'grid-pattern': "linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)",
+              'noise': "url('https://www.transparenttextures.com/patterns/stardust.png')",
+              'conic-gradient': 'conic-gradient(from 0deg, transparent 0 340deg, white 360deg)',
             },
             animation: {
-              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin-slow': 'spin 8s linear infinite',
+              'spin-slower': 'spin 15s linear infinite',
+              'reverse-spin': 'reverseSpin 10s linear infinite',
+              'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'glow-breath': 'glowBreath 4s ease-in-out infinite',
               'float': 'float 6s ease-in-out infinite',
-              'bounce-in': 'bounceIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
-              'fade-in-up': 'fadeInUp 0.5s ease-out',
-              'shake-hard': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both',
-              'glitch': 'glitch 1s linear infinite',
-              'scale-pulse': 'scalePulse 2s infinite',
-              'zoom-in-fast': 'zoomIn 0.3s ease-out forwards',
-              'spin-slow': 'spin 12s linear infinite',
-              'spin-reverse': 'spin 12s linear infinite reverse',
-              'scan': 'scan 2s linear infinite',
-              'shimmer': 'shimmer 2s infinite linear',
-              'stamp': 'stamp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
-              'lock-in': 'lockIn 0.6s cubic-bezier(0.215, 0.61, 0.355, 1) forwards',
-              'scan-line': 'scanLine 1.5s linear infinite',
-              'critical-pulse': 'criticalPulse 0.5s ease-in-out infinite',
-              'temporal-flux': 'temporalFlux 0.2s ease-in-out infinite',
-              'holo-scan': 'holoScan 2s linear infinite',
-              'success-flash': 'successFlash 0.5s ease-out forwards',
-              'text-shimmer': 'textShimmer 2.5s linear infinite',
-              'warp-out': 'warpOut 0.8s cubic-bezier(0.7, 0, 0.84, 0) forwards',
-              'marquee': 'marquee 25s linear infinite',
+              'scan-line': 'scanLine 3s linear infinite',
+              'hologram': 'hologram 2s infinite',
             },
             keyframes: {
-              marquee: {
-                '0%': { transform: 'translateX(0%)' },
-                '100%': { transform: 'translateX(-100%)' },
+              reverseSpin: {
+                '0%': { transform: 'rotate(360deg)' },
+                '100%': { transform: 'rotate(0deg)' },
+              },
+              glowBreath: {
+                '0%, 100%': { opacity: 0.5, transform: 'scale(1)' },
+                '50%': { opacity: 1, transform: 'scale(1.02)' },
               },
               float: {
                 '0%, 100%': { transform: 'translateY(0)' },
                 '50%': { transform: 'translateY(-10px)' },
               },
-              bounceIn: {
-                '0%': { transform: 'scale(0.3)', opacity: 0 },
-                '50%': { transform: 'scale(1.05)' },
-                '70%': { transform: 'scale(0.9)' },
-                '100%': { transform: 'scale(1)', opacity: 1 },
-              },
-              fadeInUp: {
-                '0%': { opacity: 0, transform: 'translateY(10px)' },
-                '100%': { opacity: 1, transform: 'translateY(0)' },
-              },
-              shake: {
-                '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' },
-                '20%, 80%': { transform: 'translate3d(2px, 0, 0)' },
-                '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' },
-                '40%, 60%': { transform: 'translate3d(4px, 0, 0)' }
-              },
-              glitch: {
-                '2%, 64%': { transform: 'translate(2px,0) skew(0deg)' },
-                '4%, 60%': { transform: 'translate(-2px,0) skew(0deg)' },
-                '62%': { transform: 'translate(0,0) skew(5deg)' }
-              },
-              scalePulse: {
-                '0%': { transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(239, 68, 68, 0.7)' },
-                '70%': { transform: 'scale(1.05)', boxShadow: '0 0 0 20px rgba(239, 68, 68, 0)' },
-                '100%': { transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(239, 68, 68, 0)' }
-              },
-              zoomIn: {
-                '0%': { opacity: 0, transform: 'scale(0.5)' },
-                '100%': { opacity: 1, transform: 'scale(1)' }
-              },
-              scan: {
-                '0%': { transform: 'translateY(-100%)' },
-                '100%': { transform: 'translateY(100%)' }
-              },
-              shimmer: {
-                '0%': { backgroundPosition: '-1000px 0' },
-                '100%': { backgroundPosition: '1000px 0' }
-              },
-              stamp: {
-                '0%': { opacity: 0, transform: 'scale(2)' },
-                '100%': { opacity: 1, transform: 'scale(1)' }
-              },
-              lockIn: {
-                '0%': { transform: 'scale(2)', opacity: 0, letterSpacing: '1em' },
-                '50%': { transform: 'scale(0.9)', opacity: 1 },
-                '100%': { transform: 'scale(1)', opacity: 1, letterSpacing: 'normal' }
-              },
               scanLine: {
-                '0%': { top: '-10%' },
-                '100%': { top: '110%' }
+                '0%': { top: '-20%', opacity: 0 },
+                '50%': { opacity: 1 },
+                '100%': { top: '120%', opacity: 0 }
               },
-              criticalPulse: {
-                '0%, 100%': { opacity: 1, boxShadow: 'inset 0 0 50px rgba(239, 68, 68, 0.5)' },
-                '50%': { opacity: 0.8, boxShadow: 'inset 0 0 10px rgba(239, 68, 68, 0.2)' }
-              },
-              temporalFlux: {
-                '0%': { filter: 'blur(0px) hue-rotate(0deg)', transform: 'translate(0,0)' },
-                '50%': { filter: 'blur(1px) hue-rotate(5deg)', transform: 'translate(0.5px, 0.5px)' },
-                '100%': { filter: 'blur(0px) hue-rotate(0deg)', transform: 'translate(0,0)' }
-              },
-              holoScan: {
-                '0%': { backgroundPosition: '0% 0%' },
-                '100%': { backgroundPosition: '0% 100%' }
-              },
-              successFlash: {
-                '0%': { backgroundColor: 'white', opacity: 0.8 },
-                '100%': { backgroundColor: 'transparent', opacity: 0 }
-              },
-              textShimmer: {
-                '0%': { backgroundPosition: '0% 50%' },
-                '100%': { backgroundPosition: '100% 50%' }
-              },
-              warpOut: {
-                 '0%': { opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' },
-                 '50%': { opacity: 0.8, transform: 'scale(1.1)', filter: 'blur(2px)' },
-                 '100%': { opacity: 0, transform: 'scale(3)', filter: 'blur(20px)' }
+              hologram: {
+                '0%, 100%': { opacity: 1 },
+                '50%': { opacity: 0.8 },
+                '10%, 90%': { transform: 'skewX(0deg)' },
+                '20%, 80%': { transform: 'skewX(2deg)' },
               }
             }
           }
@@ -155,7 +86,7 @@
 }
 </script>
 </head>
-  <body class="bg-brand-primary text-brand-text-primary antialiased selection:bg-brand-accent selection:text-white">
+  <body class="bg-brand-primary text-brand-text-primary antialiased selection:bg-brand-cyan selection:text-black font-sans overflow-x-hidden">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

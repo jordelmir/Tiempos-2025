@@ -121,16 +121,19 @@ const ActionModal: React.FC<ActionModalProps> = ({ isOpen, type, amount, details
       
       <div className={`relative w-full max-w-md mx-4 transition-all duration-500 ${isReventados && step === 'success' ? 'animate-shake-hard' : ''} ${step === 'rejected' ? 'animate-shake-hard' : ''}`}>
         
+        {/* MODAL BACKLIGHT GLOW (Massive Light from Behind) */}
+        <div className={`absolute -inset-10 bg-gradient-to-r ${isReventados ? 'from-red-600 via-orange-500 to-red-600' : currentConfig.gradient} rounded-[3rem] blur-3xl opacity-30 animate-pulse-slow pointer-events-none z-0`}></div>
+
         {/* PROCESSING STATE OVERLAY */}
         {step === 'processing' && (
-             <div className="absolute inset-0 rounded-3xl z-0 overflow-hidden">
+             <div className="absolute inset-0 rounded-3xl z-20 overflow-hidden">
                  <div className={`w-full h-full absolute top-0 bg-gradient-to-b ${type === 'error' ? 'from-red-600/30' : (isReventados ? 'from-red-500/20' : 'from-brand-accent/20')} to-transparent animate-pulse`}></div>
                  <div className="w-full h-1 bg-white/30 absolute top-0 animate-scan-line"></div>
              </div>
         )}
 
         <div className={`
-            relative border-2 rounded-3xl p-8 shadow-2xl overflow-hidden transition-all duration-500 transform 
+            relative border-2 rounded-3xl p-8 shadow-2xl overflow-hidden transition-all duration-500 transform z-10
             ${(step === 'success' || step === 'rejected') ? 'scale-100 opacity-100' : 'scale-95 opacity-90'}
             ${type === 'error' 
                 ? 'bg-black border-red-600 shadow-[0_0_50px_rgba(220,38,38,0.6)]' 
@@ -203,7 +206,13 @@ const ActionModal: React.FC<ActionModalProps> = ({ isOpen, type, amount, details
                         </div>
                     )}
 
-                    <h2 className={`text-3xl font-black uppercase tracking-tighter mb-1 ${step === 'rejected' ? 'text-red-500 glitch-text' : (isReventados ? 'text-transparent bg-clip-text bg-gradient-to-b from-yellow-400 to-red-600 drop-shadow-sm animate-pulse' : currentConfig.color)}`}>
+                    {/* UPDATED TITLE WITH HOLOGRAPHIC EFFECT FOR PURCHASE */}
+                    <h2 className={`text-3xl md:text-4xl font-black uppercase tracking-tighter mb-2
+                        ${step === 'rejected' ? 'text-red-500 glitch-text' : ''}
+                        ${step !== 'rejected' && isReventados ? 'text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-orange-500 to-red-600 drop-shadow-[0_2px_10px_rgba(239,68,68,0.8)] animate-pulse' : ''}
+                        ${step !== 'rejected' && !isReventados && type === 'purchase' ? 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 via-white to-purple-300 drop-shadow-[0_0_15px_rgba(99,102,241,0.8)]' : ''}
+                        ${step !== 'rejected' && !isReventados && type !== 'purchase' ? currentConfig.color : ''}
+                    `}>
                         {step === 'rejected' ? 'ACCESO DENEGADO' : (isReventados ? 'JUGADA MAESTRA' : currentConfig.successTitle)}
                     </h2>
                     

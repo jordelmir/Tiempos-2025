@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Ticket, DrawType, DailyResult, HistoryResult, BallColor, Transaction } from '../types';
 import Card from './common/Card';
-import Input from './common/Input';
 import Button from './common/Button';
 import WinnerModal from './WinnerModal';
 import ActionModal, { ActionType } from './ActionModal';
@@ -10,27 +9,16 @@ import { sendWinnerNotification } from '../utils/emailService';
 import { 
   PlusIcon, 
   TrashIcon, 
-  TicketIcon, 
   ShoppingCartIcon, 
   CheckCircleIcon, 
   SunIcon, 
   MoonIcon, 
   SunsetIcon,
-  CalendarIcon,
-  RefreshIcon,
+  ClockIcon,
   FireIcon,
-  LinkIcon,
-  GlobeAltIcon,
-  UserCircleIcon,
-  ArrowTrendingUpIcon,
   CpuIcon,
   BoltIcon,
-  ClockIcon,
-  CreditCardIcon,
-  ArrowTrendingDownIcon,
-  SparklesIcon,
-  ClipboardIcon,
-  ArrowPathIcon
+  SparklesIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
@@ -46,6 +34,17 @@ interface ClientPanelProps {
 
 type NewTicket = Omit<Ticket, 'id' | 'purchaseDate'>;
 
+const getNextDraw = (): DrawType => {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const totalMinutes = h * 60 + m;
+    if (totalMinutes < 12 * 60 + 55) return 'mediodia';
+    if (totalMinutes < 16 * 60 + 30) return 'tarde';
+    if (totalMinutes < 19 * 60 + 30) return 'noche';
+    return 'mediodia';
+};
+
 const ClientPanel: React.FC<ClientPanelProps> = ({ 
     user, 
     transactions,
@@ -60,19 +59,16 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
   const [amount, setAmount] = useState('');
   const [playReventados, setPlayReventados] = useState(false);
   const [reventadosAmount, setReventadosAmount] = useState('');
-  const [selectedDraw, setSelectedDraw] = useState<DrawType>('mediodia');
+  const [selectedDraw, setSelectedDraw] = useState<DrawType>(getNextDraw()); 
   const [cart, setCart] = useState<NewTicket[]>([]);
   const [error, setError] = useState('');
-  
   const [isAddingToCart, setIsAddingToCart] = useState(false);
-  const [copiedTicketId, setCopiedTicketId] = useState<string | null>(null);
 
   const [actionModal, setActionModal] = useState<{isOpen: boolean, amount: number, isReventados: boolean}>({
       isOpen: false, amount: 0, isReventados: false
   });
 
   const [winNotification, setWinNotification] = useState<{type: 'regular'|'reventados', amount: number, number: string, draw: string} | null>(null);
-
   const totalCost = cart.reduce((sum, item) => sum + item.amount + (item.reventadosAmount || 0), 0);
 
   const DRAW_LABELS: Record<DrawType, string> = {
@@ -87,21 +83,14 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
       let redBalls = 0;
 
       historyResults.forEach(day => {
-          if(day.results.mediodia.number) {
-              numCounts[day.results.mediodia.number] = (numCounts[day.results.mediodia.number] || 0) + 1;
-              totalDraws++;
-              if(day.results.mediodia.ball === 'roja') redBalls++;
-          }
-          if(day.results.tarde.number) {
-              numCounts[day.results.tarde.number] = (numCounts[day.results.tarde.number] || 0) + 1;
-              totalDraws++;
-              if(day.results.tarde.ball === 'roja') redBalls++;
-          }
-          if(day.results.noche.number) {
-              numCounts[day.results.noche.number] = (numCounts[day.results.noche.number] || 0) + 1;
-              totalDraws++;
-              if(day.results.noche.ball === 'roja') redBalls++;
-          }
+          ['mediodia', 'tarde', 'noche'].forEach((d) => {
+              const res = day.results[d as DrawType];
+              if(res.number) {
+                  numCounts[res.number] = (numCounts[res.number] || 0) + 1;
+                  totalDraws++;
+                  if(res.ball === 'roja') redBalls++;
+              }
+          });
       });
 
       const hotNumbers = Object.entries(numCounts)
@@ -114,797 +103,530 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
       return { hotNumbers, redBallPercentage, totalDraws };
   }, [historyResults]);
 
-  const recentTickets = useMemo(() => {
-      const now = new Date();
-      const cutoffDate = new Date();
-      cutoffDate.setDate(now.getDate() - 7);
-      cutoffDate.setHours(0, 0, 0, 0);
-
-      return user.tickets
-          .filter(t => new Date(t.purchaseDate) >= cutoffDate)
-          .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
-  }, [user.tickets]);
-
   useEffect(() => {
       const checkWinners = async () => {
           const normalize = (d: Date) => d.toLocaleDateString('es-CR');
           const todayTickets = user.tickets.filter(t => normalize(new Date(t.purchaseDate)) === normalize(new Date()));
-
           if (todayTickets.length === 0 || dailyResults.length === 0) return;
-
           const pendingTickets = todayTickets.filter(t => t.status === 'pending');
-
           pendingTickets.forEach(ticket => {
               const result = dailyResults.find(r => r.draw === ticket.draw && r.number !== null);
-
               if (result && result.number === ticket.number) {
-                  let winAmount = 0;
+                  let winAmount = ticket.amount * 90; 
                   let type: 'regular' | 'reventados' = 'regular';
-                  const regularPrize = ticket.amount * 90; 
-                  winAmount += regularPrize;
-
-                  if (ticket.reventadosAmount && ticket.reventadosAmount > 0) {
-                      if (result.ballColor === 'roja' && result.reventadosNumber === ticket.number) {
-                          type = 'reventados';
-                          winAmount += (ticket.reventadosAmount * 200); 
-                      }
+                  if (ticket.reventadosAmount && ticket.reventadosAmount > 0 && result.ballColor === 'roja' && result.reventadosNumber === ticket.number) {
+                      type = 'reventados';
+                      winAmount += (ticket.reventadosAmount * 200); 
                   }
-
                   onClaimWinnings(ticket.id, winAmount, type);
                   setWinNotification({ type, amount: winAmount, number: ticket.number, draw: DRAW_LABELS[ticket.draw] });
-                  
-                  sendWinnerNotification(
-                      user.email, 
-                      user.name, 
-                      winAmount, 
-                      ticket.number, 
-                      DRAW_LABELS[ticket.draw], 
-                      type === 'reventados'
-                  ).then(() => {
-                      console.log("Email delivery confirmed via Agent.");
-                  });
+                  sendWinnerNotification(user.email, user.name, winAmount, ticket.number, DRAW_LABELS[ticket.draw], type === 'reventados');
               }
           });
       };
-
       const timer = setTimeout(checkWinners, 2000); 
       return () => clearTimeout(timer);
   }, [dailyResults, user.tickets, user.email, user.name, onClaimWinnings]);
 
-
   const handleAddTicket = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
     const num = parseInt(number, 10);
     const amnt = parseInt(amount, 10);
-    const revAmnt = playReventados ? parseInt(reventadosAmount, 10) : 0;
+    const revAmt = playReventados ? parseInt(reventadosAmount, 10) : 0;
 
-    if (isNaN(num) || num < 0 || num > 99) {
-      setError('El número debe estar entre 00 y 99.');
-      return;
-    }
-    if (isNaN(amnt) || amnt <= 0) {
-      setError('El monto debe ser un número positivo.');
-      return;
-    }
-    if (playReventados && (isNaN(revAmnt) || revAmnt <= 0)) {
-      setError('El monto de reventados debe ser un número positivo.');
-      return;
-    }
+    if (isNaN(num) || num < 0 || num > 99) { setError('Número inválido'); return; }
+    if (isNaN(amnt) || amnt <= 0) { setError('Monto inválido'); return; }
 
     setIsAddingToCart(true);
-
     setTimeout(() => {
-        const formattedNumber = num.toString().padStart(2, '0');
-        setCart([...cart, { 
-          number: formattedNumber, 
-          amount: amnt, 
-          draw: selectedDraw,
-          reventadosAmount: playReventados ? revAmnt : undefined
-        }]);
-        
-        setNumber('');
-        setAmount('');
-        setReventadosAmount('');
-        setPlayReventados(false);
-        setIsAddingToCart(false);
+        setCart([...cart, { number: num.toString().padStart(2, '0'), amount: amnt, draw: selectedDraw, reventadosAmount: playReventados ? revAmt : undefined }]);
+        setNumber(''); setAmount(''); setReventadosAmount(''); setPlayReventados(false); setIsAddingToCart(false);
     }, 400);
   };
 
-  const handleRandomNumber = () => {
-      const random = Math.floor(Math.random() * 100);
-      setNumber(random.toString().padStart(2, '0'));
-  };
-
-  const handleRemoveFromCart = (index: number) => {
-    setCart(cart.filter((_, i) => i !== index));
-  };
-  
   const handlePurchase = () => {
-      if (totalCost > user.balance) {
-          setError('No tiene saldo suficiente para esta compra.');
-          return;
-      }
-
+      if (totalCost > user.balance) { setError('Saldo insuficiente'); return; }
       const hasReventados = cart.some(item => item.reventadosAmount && item.reventadosAmount > 0);
-
-      setActionModal({
-          isOpen: true,
-          amount: totalCost,
-          isReventados: hasReventados
-      });
-
+      setActionModal({ isOpen: true, amount: totalCost, isReventados: hasReventados });
       onPurchase(user.id, cart);
       setCart([]);
   }
 
-  const handleShareTicket = (t: Ticket) => {
-      const text = `🎟️ *TICKET TIEMPOS*\n🔢 Número: *${t.number}*\n💰 Inversión: ₡${t.amount}\n☀️ Sorteo: ${DRAW_LABELS[t.draw]}\n📅 Fecha: ${new Date(t.purchaseDate).toLocaleDateString()}\n🆔 ID: ${t.id.slice(0,8)}`;
-      navigator.clipboard.writeText(text);
-      setCopiedTicketId(t.id);
-      setTimeout(() => setCopiedTicketId(null), 2000);
-  };
-
-  const handleRepeatBet = (t: Ticket) => {
-      const newTicket: NewTicket = {
-          number: t.number,
-          amount: t.amount,
-          draw: selectedDraw, 
-          reventadosAmount: t.reventadosAmount
-      };
-      setCart([...cart, newTicket]);
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(amount);
-  };
-
-  const getDrawIcon = (type: DrawType, className: string = "h-5 w-5") => {
+  const getDrawIcon = (type: DrawType) => {
     switch(type) {
-      case 'mediodia': return <SunIcon className={className} />;
-      case 'tarde': return <SunsetIcon className={className} />;
-      case 'noche': return <MoonIcon className={className} />;
+      case 'mediodia': return <SunIcon className="h-5 w-5" />;
+      case 'tarde': return <SunsetIcon className="h-5 w-5" />;
+      case 'noche': return <MoonIcon className="h-5 w-5" />;
     }
   };
 
-  const formatTicketDate = (date: Date) => {
-      return new Date(date).toLocaleDateString('es-CR', { day: '2-digit', month: '2-digit' });
-  }
-
   return (
-    <div className="space-y-8 relative">
-      {winNotification && (
-          <WinnerModal 
-            winType={winNotification.type} 
-            amount={winNotification.amount}
-            ticketNumber={winNotification.number}
-            userEmail={user.email}
-            onClose={() => setWinNotification(null)}
-          />
-      )}
+    <div className="space-y-8 relative pb-20">
+      {winNotification && <WinnerModal winType={winNotification.type} amount={winNotification.amount} ticketNumber={winNotification.number} userEmail={user.email} onClose={() => setWinNotification(null)} />}
+      <ActionModal isOpen={actionModal.isOpen} type="purchase" amount={actionModal.amount} details={`${cart.length} JUGADAS`} isReventados={actionModal.isReventados} onClose={() => setActionModal({...actionModal, isOpen: false})} />
 
-      <ActionModal 
-          isOpen={actionModal.isOpen}
-          type="purchase"
-          amount={actionModal.amount}
-          details={`${cart.length || 'Múltiples'} Jugadas Confirmadas`}
-          isReventados={actionModal.isReventados}
-          onClose={() => setActionModal({...actionModal, isOpen: false})}
-      />
+      {/* HERO SECTION - RESULTS */}
+      <section className="relative animate-fade-in-up">
+          <div className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
+              <div className="relative z-10">
+                  {/* Live Feed Indicator - Cyberpunk Style */}
+                  <div className="inline-flex items-center gap-3 px-4 py-1.5 rounded-sm bg-black/40 border-l-2 border-brand-success backdrop-blur-sm mb-6 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                      <div className="relative flex h-2 w-2">
+                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isSyncing ? 'bg-brand-cyan' : 'bg-brand-success'}`}></span>
+                        <span className={`relative inline-flex rounded-full h-2 w-2 ${isSyncing ? 'bg-brand-cyan' : 'bg-brand-success'}`}></span>
+                      </div>
+                      <div className="flex flex-col leading-none">
+                          <span className="text-[8px] font-mono font-bold uppercase tracking-widest text-gray-500 mb-0.5">STATUS_LINK</span>
+                          <span className={`text-[10px] font-mono font-bold uppercase tracking-widest ${isSyncing ? 'text-brand-cyan' : 'text-brand-success'}`}>
+                              {isSyncing ? 'SYNCING_STREAM...' : 'LIVE_DATA_FEED_ACTIVE'}
+                          </span>
+                      </div>
+                  </div>
 
-      <section className="relative overflow-hidden rounded-3xl group">
-        <div className="absolute -inset-1 bg-gradient-to-b from-brand-accent/20 via-purple-500/20 to-brand-primary/20 blur-2xl opacity-50 group-hover:opacity-80 transition-opacity duration-700"></div>
-        
-        <div className="relative z-10 rounded-3xl border border-brand-border bg-brand-secondary/50 backdrop-blur-xl shadow-2xl animate-fade-in-up hover:border-brand-accent/30 transition-colors duration-500 p-6 md:p-8">
-            <div className="absolute inset-0 bg-hero-glow opacity-20 pointer-events-none"></div>
-            <div className="absolute -right-20 -top-20 w-64 h-64 bg-brand-accent/10 rounded-full blur-[80px] animate-pulse-slow pointer-events-none"></div>
-            
-            <div className="relative z-10">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
-                    <div>
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className={`inline-block w-2 h-2 rounded-full ${isSyncing ? 'bg-brand-accent animate-ping' : 'bg-brand-success'}`}></span>
-                            <span className="text-xs font-bold uppercase tracking-widest text-brand-text-secondary flex items-center gap-2">
-                            Resultados en Vivo {isSyncing && <span className="text-[9px] text-brand-accent animate-pulse">:: Sincronizando ::</span>}
-                            </span>
-                        </div>
-                        <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter mb-2 drop-shadow-lg">
-                            HOY <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-accent to-purple-400">GANAMOS.</span>
-                        </h2>
-                        <a 
-                        href="https://www.jps.go.cr/resultados/nuevos-tiempos-reventados" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary hover:text-white hover:bg-white/10 hover:border-brand-accent/50 transition-all group"
-                        >
-                        <LinkIcon className="h-3 w-3 text-brand-accent group-hover:scale-110 transition-transform"/>
-                        Verificar en JPS.go.cr
-                        </a>
-                    </div>
-                    <div className="text-right hidden md:block">
-                        <div className="text-xs text-brand-text-secondary uppercase font-bold mb-1">Próximo Sorteo</div>
-                        <div className="text-xl font-mono font-bold text-brand-accent flex items-center justify-end gap-2">
-                            <ClockIcon className="h-4 w-4 animate-spin-slow opacity-70"/>
-                            {nextDrawTime}
-                        </div>
-                    </div>
-                </div>
+                  {/* Title Block with layered glow */}
+                  <div className="relative">
+                      <h2 className="text-5xl md:text-7xl font-black italic tracking-tighter leading-[0.9] select-none">
+                          <span className="block text-white drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)] relative z-10">
+                              RESULTADOS
+                          </span>
+                          <span className="relative block text-transparent bg-clip-text bg-gradient-to-r from-brand-accent via-cyan-400 to-purple-500 drop-shadow-[0_0_25px_rgba(6,182,212,0.4)] z-10">
+                              DE HOY
+                          </span>
+                          
+                          {/* Decorative Glitch Elements behind text */}
+                          <div className="absolute -left-4 top-8 w-1 h-16 bg-brand-cyan/50 blur-[2px]"></div>
+                          <div className="absolute left-0 -bottom-4 w-24 h-1.5 bg-gradient-to-r from-brand-accent to-transparent"></div>
+                      </h2>
+                  </div>
+              </div>
+              
+              {/* NEXT DRAW CARD - FUTURISTIC BACKLIGHT EDITION */}
+              <div className="relative group cursor-default">
+                  {/* Backlight Glow - Chrono/Time Theme (Cyan/Blue/Purple) */}
+                  <div className="absolute -inset-3 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 rounded-2xl blur-xl opacity-30 group-hover:opacity-60 transition duration-1000 animate-pulse-slow"></div>
+                  
+                  {/* Card Surface */}
+                  <div className="relative bg-[#050910]/90 backdrop-blur-xl border border-white/10 px-6 py-3 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col items-end min-w-[160px]">
+                      
+                      {/* Label with scanning indicator */}
+                      <div className="flex items-center gap-2 mb-1">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-cyan opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand-cyan"></span>
+                          </span>
+                          <span className="text-[9px] font-bold text-brand-cyan uppercase tracking-[0.2em] drop-shadow-sm">Siguiente Sorteo</span>
+                      </div>
+                      
+                      {/* Time Display with Holographic Text */}
+                      <div className="flex items-center gap-3">
+                           <ClockIcon className="h-5 w-5 text-brand-text-secondary animate-spin-slower"/>
+                           <span className="text-2xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-r from-white to-cyan-200 drop-shadow-[0_0_10px_rgba(6,182,212,0.7)]">
+                               {nextDrawTime}
+                           </span>
+                      </div>
+                  </div>
+              </div>
+          </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {dailyResults.map((res, idx) => {
-                        const isReventado = res.ballColor === 'roja';
-                        const glowColor = res.draw === 'mediodia' ? 'from-orange-500/30 to-yellow-500/30' : 
-                                        res.draw === 'tarde' ? 'from-purple-500/30 to-pink-500/30' : 
-                                        'from-blue-500/30 to-cyan-500/30';
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Se muestran estrictamente las 3 tarjetas: Mediodía, Tarde, Noche */}
+              {(['mediodia', 'tarde', 'noche'] as DrawType[]).map((drawType) => {
+                  // Buscar resultado EXACTO del día de hoy
+                  const existingResult = dailyResults.find(r => 
+                      r.draw === drawType && 
+                      new Date(r.date).toDateString() === new Date().toDateString()
+                  );
 
-                        return (
-                            <div key={res.draw} className="relative group/card" style={{ animationDelay: `${idx * 100}ms` }}>
-                                <div className={`absolute -inset-0.5 bg-gradient-to-br ${glowColor} rounded-2xl blur-lg opacity-20 group-hover/card:opacity-60 transition duration-500`}></div>
+                  // Si no existe, usamos un placeholder "Pendiente"
+                  const res = existingResult || { 
+                      date: new Date().toISOString(), 
+                      draw: drawType, 
+                      number: null, 
+                      reventadosNumber: null, 
+                      ballColor: null 
+                  };
 
-                                <div className="relative bg-brand-primary/80 rounded-2xl p-5 border border-brand-border hover:border-brand-accent/50 transition-all duration-500 overflow-hidden hover:shadow-[0_0_30px_rgba(79,70,229,0.15)] hover:-translate-y-1 h-[320px] flex flex-col backdrop-blur-md">
-                                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover/card:opacity-10 transition-opacity duration-500 transform group-hover/card:scale-110">
-                                        {getDrawIcon(res.draw, "h-24 w-24")}
-                                    </div>
-                                    
-                                    <div className="flex items-center justify-between mb-8 relative z-10 shrink-0">
-                                        <div className="flex items-center gap-2">
-                                            <div className={`p-2 rounded-lg ${res.draw === 'mediodia' ? 'bg-orange-500/20 text-orange-400' : res.draw === 'tarde' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                                {getDrawIcon(res.draw)}
-                                            </div>
-                                            <span className="font-bold text-white uppercase text-sm tracking-wide">{DRAW_LABELS[res.draw]}</span>
-                                        </div>
-                                    </div>
+                  const isReventado = res.ballColor === 'roja';
 
-                                    <div className="flex justify-center items-center flex-grow relative z-10">
-                                        {res.number ? (
-                                            isReventado ? (
-                                                <div className="relative w-full h-48 flex items-center justify-center">
-                                                    <div className="relative z-10 flex flex-col items-center">
-                                                        <div className="relative w-24 h-24 flex items-center justify-center rounded-full bg-gradient-to-br from-red-500 via-red-600 to-red-800 text-white text-5xl font-black border-4 border-red-400 shadow-[0_0_50px_rgba(239,68,68,0.6)] animate-scale-pulse">
-                                                            {res.reventadosNumber || res.number}
-                                                            <div className="absolute top-3 left-4 w-6 h-4 bg-white rounded-full opacity-30 blur-[3px]"></div>
-                                                        </div>
-                                                        <div className="absolute -inset-4 bg-red-600/20 rounded-full blur-xl animate-pulse-slow -z-10"></div>
-                                                        <span className="text-[9px] uppercase font-bold text-red-400 mt-2 tracking-wider bg-red-900/30 px-2 py-0.5 rounded border border-red-500/20">
-                                                            <FireIcon className="h-2 w-2 inline mr-0.5"/>Reventado x200
-                                                        </span>
-                                                    </div>
-                                                    <div className="absolute w-48 h-48 rounded-full border border-white/5 animate-spin-slow pointer-events-none">
-                                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2">
-                                                            <div className="animate-spin-reverse">
-                                                                <div className="relative flex flex-col items-center">
-                                                                    <div className="w-12 h-12 flex items-center justify-center rounded-full bg-white text-brand-primary text-lg font-black border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,1)] relative overflow-hidden">
-                                                                        {res.number}
-                                                                        <div className="absolute inset-0 bg-purple-500/10"></div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col items-center justify-center gap-4 w-full animate-float">
-                                                    <div className="relative w-28 h-28 flex items-center justify-center rounded-full bg-gradient-to-b from-white to-gray-200 shadow-[0_0_40px_rgba(168,85,247,0.6)] text-brand-primary text-6xl font-black transform group-hover/card:scale-105 transition-transform duration-500 border-[6px] border-purple-500">
-                                                        {res.number}
-                                                        <div className="absolute top-3 left-5 w-10 h-5 bg-white rounded-full opacity-60 blur-[2px]"></div>
-                                                    </div>
-                                                    <div className="text-center">
-                                                        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-purple-400 drop-shadow-md">
-                                                            BOLITA BLANCA
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )
-                                        ) : (
-                                            <div className="h-full flex flex-col items-center justify-center w-full opacity-50">
-                                                <div className="w-16 h-16 rounded-full border-2 border-dashed border-brand-text-secondary/30 animate-spin-slow mb-4"></div>
-                                                <span className="text-xs font-mono text-brand-text-secondary animate-pulse">ESPERANDO DATA</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </div>
+                  return (
+                      <Card 
+                        key={drawType} 
+                        glowColor={
+                            res.draw === 'mediodia' ? 'from-orange-500 via-yellow-500 to-orange-600' : 
+                            res.draw === 'tarde' ? 'from-purple-600 via-pink-500 to-purple-700' : 
+                            'from-blue-900 via-blue-800 to-indigo-900' // Dark Blue Neon updated
+                        }
+                      >
+                          <div className="flex items-center justify-between mb-8 relative z-20">
+                              <div className={`flex items-center gap-2 px-3 py-1 rounded-full border bg-black/20 backdrop-blur-md ${
+                                  res.draw === 'mediodia' ? 'text-orange-400 border-orange-500/30' : 
+                                  res.draw === 'tarde' ? 'text-purple-400 border-purple-500/30' : 
+                                  'text-blue-300 border-blue-500/30'
+                                }`}>
+                                  {getDrawIcon(res.draw)}
+                                  <span className="text-xs font-bold uppercase tracking-wider">{DRAW_LABELS[res.draw]}</span>
+                              </div>
+                              {res.number && (
+                                  <div className={`w-2 h-2 rounded-full animate-pulse ${isReventado ? 'bg-brand-danger shadow-[0_0_15px_#EF4444]' : 'bg-brand-success shadow-[0_0_15px_#10B981]'}`}></div>
+                              )}
+                          </div>
+
+                          <div className="flex justify-center py-6">
+                              {res.number ? (
+                                  <div className="relative group cursor-default select-none">
+                                      {/* Layer 1: Outer Atmosphere */}
+                                      <div className={`absolute inset-0 rounded-full blur-2xl opacity-40 animate-pulse-slow ${isReventado ? 'bg-red-600' : 'bg-blue-400'}`}></div>
+                                      
+                                      {/* Layer 2: The Orb */}
+                                      <div className={`
+                                          relative w-36 h-36 rounded-full flex items-center justify-center
+                                          bg-gradient-radial ${isReventado ? 'from-red-500 via-red-700 to-black' : 'from-white via-slate-300 to-slate-500'}
+                                          shadow-[inset_0_-10px_20px_rgba(0,0,0,0.8),0_0_20px_rgba(255,255,255,0.2)]
+                                          border-[1px] ${isReventado ? 'border-red-400' : 'border-white/40'}
+                                      `}>
+                                          <div className="absolute inset-0 rounded-full bg-[url('https://www.transparenttextures.com/patterns/noise.png')] opacity-20 mix-blend-overlay"></div>
+                                          
+                                          <span className={`text-7xl font-black tracking-tighter z-10 ${isReventado ? 'text-white drop-shadow-[0_2px_5px_rgba(0,0,0,0.8)]' : 'text-brand-primary drop-shadow-sm'}`}>
+                                              {res.number}
+                                          </span>
+                                          
+                                          {/* Specular Highlight */}
+                                          <div className="absolute top-4 left-6 w-12 h-6 bg-white rounded-full opacity-40 blur-[4px]"></div>
+                                      </div>
+                                      
+                                      {isReventado && (
+                                          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-brand-danger text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-[0_0_20px_#EF4444] border border-red-400 flex items-center gap-1 whitespace-nowrap z-30 animate-bounce">
+                                              <FireIcon className="h-3 w-3"/> x200
+                                          </div>
+                                      )}
+                                  </div>
+                              ) : (
+                                  <div className="w-32 h-32 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center animate-spin-slow relative">
+                                      <div className="absolute inset-0 rounded-full border border-white/5 animate-ping opacity-20"></div>
+                                      <span className="text-xs font-mono text-white/30 animate-pulse">WAITING</span>
+                                  </div>
+                              )}
+                          </div>
+                      </Card>
+                  )
+              })}
+          </div>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-8 space-y-8">
-           <Card className="overflow-hidden border-brand-accent/30 shadow-2xl animate-fade-in-up" glowColor="from-brand-accent/50 via-indigo-500/50 to-blue-500/50">
-                <div className="flex items-center justify-between mb-8 border-b border-brand-border pb-4 relative z-10">
-                    <div className="flex items-center gap-3">
-                         <div className="bg-brand-accent/20 p-2 rounded-lg text-brand-accent shadow-[0_0_15px_rgba(79,70,229,0.3)]">
-                             <PlusIcon className="h-6 w-6" />
-                         </div>
-                         <div>
-                             <h3 className="text-xl font-bold text-white">Crear Jugada</h3>
-                             <p className="text-xs text-brand-text-secondary">Arma tu combinación ganadora</p>
-                         </div>
-                    </div>
-                    <div className="hidden sm:flex items-center gap-2 bg-brand-tertiary px-3 py-1 rounded-lg border border-brand-border">
-                        <FireIcon className="h-4 w-4 text-brand-danger animate-pulse" />
-                        <span className="text-xs font-bold text-brand-text-primary">200x Reventados</span>
-                    </div>
-                </div>
+          {/* BETTING INTERFACE - WORLD CLASS DESIGN UPDATE */}
+          <div className="lg:col-span-8">
+              <div className="relative group">
+                  {/* MASSIVE BACKLIGHT EFFECT (Light coming from behind) */}
+                  {/* Outer wide glow */}
+                  <div className="absolute -inset-8 bg-gradient-to-r from-purple-900 via-fuchsia-900 to-purple-900 rounded-[3rem] blur-3xl opacity-60 group-hover:opacity-80 transition duration-1000 animate-pulse-slow pointer-events-none"></div>
+                  
+                  {/* Inner intense glow */}
+                  <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 rounded-[2rem] blur-xl opacity-30 group-hover:opacity-60 transition duration-500 pointer-events-none"></div>
+                  
+                  <div className="relative bg-[#050910]/90 backdrop-blur-xl border border-purple-500/20 rounded-[1.5rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-8">
+                      {/* Inner Ambient Light */}
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2/3 h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50 blur-sm"></div>
+                      <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-purple-500/10 rounded-full blur-[80px] pointer-events-none"></div>
 
-                <form onSubmit={handleAddTicket} className="space-y-8 relative z-10">
-                    <div>
-                        <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider">1. Elige el Sorteo</label>
-                        <div className="grid grid-cols-3 gap-3">
-                            {(['mediodia', 'tarde', 'noche'] as DrawType[]).map((type) => {
-                                const drawGlow = type === 'mediodia' ? 'from-orange-500 to-yellow-500' : 
-                                                type === 'tarde' ? 'from-purple-500 to-pink-500' : 
-                                                'from-blue-500 to-cyan-500';
-                                
-                                return (
-                                    <button
-                                        key={type}
-                                        type="button"
-                                        onClick={() => setSelectedDraw(type)}
-                                        className="relative group"
-                                    >
-                                        <div className={`absolute -inset-0.5 bg-gradient-to-r ${drawGlow} rounded-xl blur opacity-0 group-hover:opacity-50 transition duration-300 ${selectedDraw === type ? 'opacity-40' : ''}`}></div>
+                      <div className="flex items-center gap-4 mb-8 border-b border-white/5 pb-6 relative z-10">
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center border border-white/10 shadow-[0_0_20px_rgba(147,51,234,0.3)]">
+                              <CpuIcon className="h-6 w-6 text-white"/>
+                          </div>
+                          <div>
+                              <h3 className="text-2xl font-black text-white uppercase tracking-tight">Configurar Jugada</h3>
+                              <p className="text-xs font-mono text-purple-400 flex items-center gap-2">
+                                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></span>
+                                  INGRESE COORDENADAS DE APUESTA
+                              </p>
+                          </div>
+                      </div>
 
-                                        <div className={`
-                                            relative flex flex-col items-center justify-center py-4 px-2 rounded-xl border-2 transition-all duration-300 transform active:scale-95 bg-brand-tertiary
-                                            ${selectedDraw === type 
-                                                ? 'bg-brand-secondary border-brand-accent text-brand-accent shadow-[0_0_20px_rgba(79,70,229,0.3)] scale-105 z-10' 
-                                                : 'border-brand-border text-brand-text-secondary hover:border-brand-text-secondary/50 hover:bg-brand-tertiary/80 grayscale hover:grayscale-0'
-                                            }
-                                        `}>
-                                            <div className={`mb-2 transition-all duration-300 ${selectedDraw === type ? 'text-brand-accent scale-110' : 'text-brand-text-secondary'}`}>
-                                                {getDrawIcon(type, "h-6 w-6")}
-                                            </div>
-                                            <span className="font-bold text-xs uppercase tracking-widest">{DRAW_LABELS[type]}</span>
-                                        </div>
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    </div>
+                      <form onSubmit={handleAddTicket} className="space-y-8 relative z-10">
+                          {/* Draw Selector */}
+                          <div className="grid grid-cols-3 gap-4 p-2 bg-black/40 rounded-2xl border border-white/5 shadow-inner">
+                              {(['mediodia', 'tarde', 'noche'] as DrawType[]).map(type => (
+                                  <button
+                                      key={type}
+                                      type="button"
+                                      onClick={() => setSelectedDraw(type)}
+                                      className={`relative py-4 rounded-xl transition-all duration-300 overflow-hidden group/btn ${selectedDraw === type ? 'bg-[#1E1B4B] shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-purple-500/30' : 'hover:bg-white/5 border border-transparent'}`}
+                                  >
+                                      <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/10 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700`}></div>
+                                      <div className={`flex flex-col items-center gap-2 relative z-10 ${selectedDraw === type ? 'text-white scale-105' : 'text-gray-500 grayscale'}`}>
+                                          {getDrawIcon(type)}
+                                          <span className="text-[10px] font-bold uppercase tracking-widest">{DRAW_LABELS[type]}</span>
+                                      </div>
+                                      {selectedDraw === type && (
+                                          <>
+                                            <div className="absolute bottom-0 left-0 w-full h-0.5 bg-purple-500 shadow-[0_0_10px_#A855F7]"></div>
+                                            <div className="absolute inset-0 bg-purple-500/5"></div>
+                                          </>
+                                      )}
+                                  </button>
+                              ))}
+                          </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="group">
-                            <div className="flex justify-between items-center mb-3">
-                                <label className="block text-xs uppercase font-bold text-brand-text-secondary tracking-wider group-focus-within:text-brand-accent transition-colors">2. Tu Número</label>
-                                <button type="button" onClick={handleRandomNumber} className="text-[10px] text-brand-accent hover:text-white flex items-center gap-1 font-bold bg-brand-accent/10 hover:bg-brand-accent px-2 py-0.5 rounded-md transition-all">
-                                    <SparklesIcon className="h-3 w-3" /> Mágico
-                                </button>
-                            </div>
-                            <div className="relative group/input">
-                                <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-purple-500 rounded-2xl blur opacity-0 group-focus-within/input:opacity-40 transition duration-500"></div>
-                                <div className="relative">
-                                    <input
-                                        id="number"
-                                        type="tel"
-                                        value={number}
-                                        onChange={(e) => setNumber(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
-                                        placeholder="00"
-                                        className="w-full bg-brand-tertiary/50 border border-brand-border rounded-2xl text-center text-5xl font-black text-white py-6 focus:ring-2 focus:ring-brand-accent focus:border-transparent focus:bg-brand-tertiary transition-all placeholder-brand-text-secondary/20 font-mono shadow-inner focus:shadow-[0_0_30px_rgba(79,70,229,0.2)] relative z-10"
-                                        maxLength={2}
-                                    />
-                                    <span className="absolute top-4 left-4 text-[10px] font-bold text-brand-text-secondary uppercase group-focus-within:text-brand-accent transition-colors z-20">NÚMERO</span>
-                                </div>
-                            </div>
-                        </div>
-                         <div className="group">
-                            <label className="block text-xs uppercase font-bold text-brand-text-secondary mb-3 tracking-wider group-focus-within:text-brand-success transition-colors">3. Monto a Apostar</label>
-                            <div className="relative group/input">
-                                <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-emerald-700 rounded-2xl blur opacity-0 group-focus-within/input:opacity-40 transition duration-500"></div>
-                                <div className="relative">
-                                    <input
-                                        id="amount"
-                                        type="tel"
-                                        value={amount}
-                                        onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                                        placeholder="1000"
-                                        className="w-full bg-brand-tertiary/50 border border-brand-border rounded-2xl text-center text-4xl font-bold text-brand-success py-8 focus:ring-2 focus:ring-brand-success focus:border-transparent focus:bg-brand-tertiary transition-all placeholder-brand-text-secondary/20 font-mono shadow-inner focus:shadow-[0_0_30px_rgba(16,185,129,0.2)] relative z-10"
-                                    />
-                                    <span className="absolute top-4 left-4 text-[10px] font-bold text-brand-text-secondary uppercase group-focus-within:text-brand-success transition-colors z-20">COLONES</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                          {/* Input Grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              <div>
+                                  <label className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-widest mb-3 block pl-1">Número (00-99)</label>
+                                  <div className="relative group/input">
+                                      <div className="absolute -inset-0.5 bg-purple-600/30 rounded-2xl blur opacity-0 group-focus-within/input:opacity-100 transition duration-500"></div>
+                                      <input 
+                                          type="tel" 
+                                          maxLength={2}
+                                          value={number}
+                                          onChange={e => setNumber(e.target.value.replace(/[^0-9]/g, '').slice(0,2))}
+                                          className="relative w-full bg-[#020408] border border-white/10 rounded-2xl py-6 text-center text-6xl font-black text-white outline-none focus:border-purple-500/50 transition-colors font-mono tracking-tighter shadow-inner"
+                                          placeholder="00"
+                                      />
+                                  </div>
+                              </div>
+                              <div>
+                                  <label className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-widest mb-3 block pl-1">Inversión (CRC)</label>
+                                  <div className="relative group/input">
+                                      <div className="absolute -inset-0.5 bg-brand-success/30 rounded-2xl blur opacity-0 group-focus-within/input:opacity-100 transition duration-500"></div>
+                                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-brand-success/40 text-3xl font-light z-10">₡</span>
+                                      <input 
+                                          type="tel" 
+                                          value={amount}
+                                          onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                                          className="relative w-full bg-[#020408] border border-white/10 rounded-2xl py-8 pl-14 pr-6 text-right text-4xl font-bold text-brand-success outline-none focus:border-brand-success/50 transition-colors font-mono shadow-inner"
+                                          placeholder="1000"
+                                      />
+                                  </div>
+                              </div>
+                          </div>
 
-                    <div className={`relative bg-gradient-to-r from-red-900/10 to-transparent border rounded-xl p-4 transition-all duration-300 group/rev ${playReventados ? 'border-red-500/50 shadow-[0_0_20px_rgba(220,38,38,0.1)]' : 'border-red-500/20'}`}>
-                        <div className={`absolute -inset-0.5 bg-red-600 rounded-xl blur opacity-0 ${playReventados ? 'opacity-20' : 'group-hover/rev:opacity-10'} transition duration-500`}></div>
-                        
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg transition-colors ${playReventados ? 'bg-red-500 text-white shadow-lg' : 'bg-red-500/20 text-red-500'}`}>
-                                        <FireIcon className="h-5 w-5" />
-                                    </div>
-                                    <div>
-                                        <h4 className="font-bold text-white text-sm">Jugar Reventados</h4>
-                                        <p className="text-[10px] text-brand-text-secondary">Multiplica tu inversión hasta 200x</p>
-                                    </div>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer group">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={playReventados} 
-                                        onChange={(e) => setPlayReventados(e.target.checked)}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-11 h-6 bg-brand-secondary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600 border border-brand-border group-hover:border-red-400/50 transition-colors"></div>
-                                </label>
-                            </div>
+                          {/* Reventados Module (Updated Visuals) */}
+                          <div 
+                            onClick={() => setPlayReventados(!playReventados)}
+                            className={`
+                                group relative rounded-2xl p-1 transition-all duration-500 cursor-pointer overflow-hidden
+                                ${playReventados 
+                                    ? 'shadow-[0_0_40px_rgba(239,68,68,0.4)] border border-red-500/50' 
+                                    : 'border border-white/5 hover:border-white/10'}
+                            `}
+                          >
+                              {/* Background layers */}
+                              <div className={`absolute inset-0 transition-opacity duration-500 ${playReventados ? 'opacity-100' : 'opacity-0'}`}>
+                                  <div className="absolute inset-0 bg-gradient-to-r from-red-900 via-orange-900 to-red-900 animate-pulse-slow"></div>
+                                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
+                              </div>
+                              
+                              <div className="relative z-10 p-4 rounded-xl bg-[#050910]/80 backdrop-blur-sm flex flex-col gap-4">
+                                  <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-4">
+                                          <div className={`
+                                              w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300
+                                              ${playReventados ? 'bg-gradient-to-br from-red-500 to-orange-500 text-white shadow-[0_0_15px_#EF4444]' : 'bg-white/5 text-gray-600'}
+                                          `}>
+                                              <FireIcon className={`h-6 w-6 ${playReventados ? 'animate-pulse' : ''}`}/>
+                                          </div>
+                                          <div>
+                                              <h4 className={`font-black uppercase tracking-wider text-sm transition-colors ${playReventados ? 'text-red-400 drop-shadow-sm' : 'text-gray-400'}`}>
+                                                  Protocolo Reventados
+                                              </h4>
+                                              <p className={`text-[10px] font-mono transition-colors ${playReventados ? 'text-orange-300' : 'text-gray-600'}`}>
+                                                  {playReventados ? '/// Multiplicador x200 activado' : 'Modo Estándar'}
+                                              </p>
+                                          </div>
+                                      </div>
+                                      
+                                      {/* Switch UI */}
+                                      <div className={`w-14 h-7 rounded-full relative border transition-all duration-300 ${playReventados ? 'bg-red-900/50 border-red-500' : 'bg-black border-white/10'}`}>
+                                          <div className={`absolute top-1 w-5 h-5 rounded-full shadow-md transition-all duration-300 ${playReventados ? 'left-8 bg-white shadow-[0_0_10px_white]' : 'left-1 bg-gray-700'}`}></div>
+                                      </div>
+                                  </div>
 
-                            {playReventados && (
-                                <div className="animate-fade-in-up">
-                                    <Input
-                                        label="Monto Reventados"
-                                        value={reventadosAmount}
-                                        onChange={(e) => setReventadosAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                                        placeholder="Monto adicional..."
-                                        className="bg-brand-secondary border-red-500/30 focus:ring-red-500 text-red-100 placeholder-red-900/50"
-                                        icon={<span className="font-bold text-red-500">₡</span>}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                                  {/* Input Module */}
+                                  {playReventados && (
+                                      <div className="animate-fade-in-up relative mt-2">
+                                          <div className="absolute inset-0 bg-red-500/5 rounded-xl blur-sm"></div>
+                                          <input 
+                                              type="tel" 
+                                              placeholder="MONTO EXTRA" 
+                                              onClick={(e) => e.stopPropagation()}
+                                              value={reventadosAmount}
+                                              onChange={e => setReventadosAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                                              className="relative w-full bg-black/50 border border-red-500/50 rounded-xl p-4 text-right text-2xl font-black font-mono text-white placeholder-red-900/50 outline-none focus:border-red-400 focus:shadow-[0_0_20px_rgba(239,68,68,0.2)] transition-all"
+                                          />
+                                      </div>
+                                  )}
+                              </div>
+                              
+                              {/* Energy bar bottom */}
+                              {playReventados && (
+                                <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent animate-pulse"></div>
+                              )}
+                          </div>
 
-                    <div className="relative group/btn">
-                        <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-indigo-600 rounded-xl blur opacity-30 group-hover/btn:opacity-100 transition duration-500"></div>
-                        <Button 
-                            variant="primary" 
-                            size="lg" 
-                            type="submit" 
-                            className={`relative w-full uppercase tracking-widest text-sm shadow-xl transition-all duration-300 ${isAddingToCart ? 'scale-95 opacity-80' : 'hover:-translate-y-1'}`}
-                            disabled={isAddingToCart}
-                        >
-                            {isAddingToCart ? (
-                                <span className="flex items-center gap-2">
-                                    <RefreshIcon className="h-5 w-5 animate-spin"/> PROCESANDO DATOS...
-                                </span>
-                            ) : (
-                                <>
-                                    <PlusIcon className="h-5 w-5" /> INYECTAR AL CARRITO
-                                </>
-                            )}
-                        </Button>
-                    </div>
+                          {/* CUSTOM HIGH-END NEON BUTTON */}
+                          <button
+                              type="submit"
+                              disabled={isAddingToCart}
+                              className={`
+                                group relative w-full py-5 rounded-2xl overflow-hidden 
+                                transition-all duration-300 active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed
+                                shadow-[0_0_30px_rgba(147,51,234,0.4)] hover:shadow-[0_0_50px_rgba(147,51,234,0.7)]
+                              `}
+                          >
+                              {/* 1. Background Plasma Layer (Animated Gradient) */}
+                              <div className="absolute inset-0 bg-gradient-to-r from-indigo-700 via-fuchsia-600 to-purple-700 bg-[length:200%_auto] opacity-90 group-hover:opacity-100 transition-opacity animate-pulse-slow"></div>
+                              
+                              {/* 2. Carbon Texture Overlay */}
+                              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
 
-                    {error && (
-                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs font-bold text-center animate-shake-hard relative overflow-hidden">
-                             <div className="absolute inset-0 bg-red-500/10 animate-pulse"></div>
-                            <span className="relative z-10">{error}</span>
-                        </div>
-                    )}
-                </form>
-           </Card>
+                              {/* 3. Moving Shine/Sheen */}
+                              <div className="absolute inset-0 translate-x-[-100%] group-hover:translate-x-[100%] bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-in-out skew-x-12"></div>
+                              
+                              {/* 4. Border Glow */}
+                              <div className="absolute inset-0 rounded-2xl border border-white/20 group-hover:border-white/50 transition-colors"></div>
 
-           <div className="space-y-6 animate-fade-in-up" style={{animationDelay: '200ms'}}>
-               <div className="flex items-center justify-between">
-                   <h3 className="text-xl font-black text-white flex items-center gap-2 tracking-tight">
-                       <CpuIcon className="h-6 w-6 text-brand-accent" /> CENTRO DE INTELIGENCIA
-                   </h3>
-                   <span className="text-[10px] font-bold uppercase bg-brand-tertiary px-3 py-1 rounded-full text-brand-text-secondary border border-brand-border animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                       ● Datos en Tiempo Real
-                   </span>
-               </div>
+                              {/* 5. Content */}
+                              <div className="relative z-10 flex items-center justify-center gap-4 text-white">
+                                  {isAddingToCart ? (
+                                      <CpuIcon className="h-6 w-6 animate-spin text-purple-200"/>
+                                  ) : (
+                                      <div className="bg-white/20 p-2 rounded-lg backdrop-blur-md shadow-inner border border-white/10 group-hover:scale-110 transition-transform duration-300">
+                                          <PlusIcon className="h-5 w-5 text-white"/>
+                                      </div>
+                                  )}
+                                  <div className="flex flex-col items-start leading-none">
+                                      <span className="font-black font-mono text-base tracking-[0.2em] uppercase drop-shadow-md group-hover:text-white transition-colors">
+                                          {isAddingToCart ? 'PROCESANDO...' : 'AGREGAR AL CONTRATO'}
+                                      </span>
+                                      {!isAddingToCart && (
+                                          <span className="text-[9px] font-mono text-purple-200 uppercase tracking-widest opacity-80">
+                                              /// Ejecutar Inyección de Datos
+                                          </span>
+                                      )}
+                                  </div>
+                              </div>
+                              
+                              {/* 6. Bottom Energy Bar */}
+                              <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-70 group-hover:opacity-100 transition-opacity blur-[1px]"></div>
+                          </button>
+                          
+                          {error && (
+                              <div className="text-center p-3 rounded-lg bg-brand-danger/10 border border-brand-danger/30 text-brand-danger text-xs font-bold animate-shake-hard uppercase tracking-widest">
+                                  {error}
+                              </div>
+                          )}
+                      </form>
+                  </div>
+              </div>
+          </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <Card className="bg-gradient-to-br from-brand-secondary to-brand-primary relative overflow-hidden border-brand-border group hover:border-yellow-500/30 transition-colors duration-500" glowColor="from-yellow-500/20 via-orange-500/20 to-yellow-500/20">
-                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/grid-me.png')] opacity-10"></div>
-                        
-                        <div className="relative z-10">
-                            <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2">
-                                <FireIcon className="h-4 w-4 text-brand-gold"/> Números Calientes (Top 3)
-                            </h4>
-                            <div className="flex items-end justify-between gap-2">
-                                {stats.hotNumbers.length > 0 ? stats.hotNumbers.map((item, idx) => (
-                                    <div key={item.num} className="flex flex-col items-center gap-2 flex-1 animate-fade-in-up" style={{animationDelay: `${idx * 150}ms`}}>
-                                        <div className={`
-                                            relative w-full aspect-square rounded-2xl flex flex-col items-center justify-center border transition-all duration-500 group/num
-                                            ${idx === 0 ? 'bg-gradient-to-b from-yellow-500/20 to-yellow-700/20 border-yellow-500/50 scale-110' : 
-                                              idx === 1 ? 'bg-brand-tertiary border-brand-text-secondary/50 hover:border-white/30' : 
-                                              'bg-brand-primary border-brand-border hover:border-white/30'}
-                                        `}>
-                                            <div className={`absolute -inset-0.5 rounded-2xl blur opacity-0 group-hover/num:opacity-50 transition duration-500 ${idx === 0 ? 'bg-yellow-500 opacity-30' : 'bg-white'}`}></div>
-                                            
-                                            <span className={`text-3xl font-black relative z-10 ${idx === 0 ? 'text-yellow-400 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]' : 'text-white'}`}>
-                                                {item.num}
-                                            </span>
-                                            <span className="text-[9px] uppercase font-bold text-brand-text-secondary relative z-10">
-                                                {item.count} VECES
-                                            </span>
-                                        </div>
-                                        {idx === 0 && <span className="text-[9px] font-black text-yellow-500 uppercase tracking-widest animate-pulse">LIDER</span>}
-                                    </div>
-                                )) : (
-                                    <div className="text-center w-full text-brand-text-secondary text-xs italic">Recopilando datos...</div>
-                                )}
-                            </div>
-                        </div>
-                   </Card>
+          {/* CART & STATS */}
+          <div className="lg:col-span-4 space-y-6">
+              {/* Cart Card */}
+              <Card glowColor="from-purple-600 via-fuchsia-500 to-brand-accent" className="h-[600px] flex flex-col">
+                  <div className="flex justify-between items-center mb-6 pb-4 border-b border-white/10">
+                      <h3 className="font-bold text-white uppercase flex items-center gap-2"><ShoppingCartIcon className="h-5 w-5 text-purple-400"/> Contrato Actual</h3>
+                      <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2 py-1 rounded border border-purple-500/30">{cart.length} JUGADAS</span>
+                  </div>
 
-                   <Card className="bg-brand-secondary relative overflow-hidden flex items-center justify-between group hover:border-red-500/30 transition-colors" glowColor="from-red-500/20 to-red-900/20">
-                       <div>
-                           <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-2">Probabilidad Reventados</h4>
-                           <div className="text-4xl font-mono font-black text-white drop-shadow-[0_0_10px_rgba(220,38,38,0.5)]">{stats.redBallPercentage}%</div>
-                           <p className="text-[10px] text-brand-text-secondary max-w-[150px] mt-2 leading-tight">
-                               Porcentaje histórico de aparición de la <span className="text-red-400 font-bold">Bolita Roja</span>.
-                           </p>
-                       </div>
-                       <div className="relative w-24 h-24 rounded-full flex items-center justify-center transition-transform group-hover:scale-105 duration-500" style={{
-                           background: `conic-gradient(#EF4444 ${stats.redBallPercentage}%, #1E2332 0)`
-                       }}>
-                           <div className="absolute inset-2 bg-brand-secondary rounded-full flex items-center justify-center">
-                               <FireIcon className="h-8 w-8 text-red-500 animate-pulse-slow"/>
-                           </div>
-                           <div className="absolute inset-0 rounded-full shadow-[0_0_30px_rgba(239,68,68,0.5)] opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                       </div>
-                   </Card>
-               </div>
+                  <div className="flex-grow overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                      {cart.length > 0 ? cart.map((item, i) => (
+                          <div key={i} className="bg-[#050910] p-4 rounded-xl border border-white/5 flex justify-between items-center group hover:border-brand-accent/30 transition-all hover:bg-brand-tertiary relative overflow-hidden">
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-brand-accent to-brand-cyan opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                              
+                              <div className="flex items-center gap-4">
+                                  <div className="w-12 h-12 rounded-lg bg-brand-tertiary flex items-center justify-center font-black text-xl text-white border border-white/10 shadow-inner">
+                                      {item.number}
+                                  </div>
+                                  <div>
+                                      <div className="text-[10px] font-bold text-brand-text-secondary uppercase mb-1">{DRAW_LABELS[item.draw]}</div>
+                                      <div className="flex flex-col">
+                                          <span className="text-xs text-brand-success font-mono font-bold">₡{item.amount}</span>
+                                          {item.reventadosAmount && item.reventadosAmount > 0 && (
+                                              <span className="text-[9px] text-brand-danger font-mono font-bold flex items-center gap-1">+ ₡{item.reventadosAmount} <FireIcon className="h-2 w-2"/></span>
+                                          )}
+                                      </div>
+                                  </div>
+                              </div>
+                              <button onClick={() => {
+                                  const newCart = [...cart];
+                                  newCart.splice(i, 1);
+                                  setCart(newCart);
+                              }} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-brand-danger/20 text-gray-500 hover:text-brand-danger transition-colors"><TrashIcon className="h-4 w-4"/></button>
+                          </div>
+                      )) : (
+                          <div className="h-full flex flex-col items-center justify-center opacity-30">
+                              <div className="w-20 h-20 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center mb-4">
+                                  <ShoppingCartIcon className="h-8 w-8"/>
+                              </div>
+                              <p className="text-xs font-bold uppercase tracking-widest">Sin Items en Contrato</p>
+                          </div>
+                      )}
+                  </div>
 
-               <Card glowColor="from-blue-500/20 to-cyan-500/20">
-                   <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-6 flex items-center gap-2">
-                       <ArrowTrendingUpIcon className="h-4 w-4" /> Timeline de Resultados
-                   </h4>
-                   
-                   <div className="relative border-l-2 border-brand-border ml-3 space-y-8">
-                       {historyResults.length > 0 ? historyResults.map((day, idx) => (
-                           <div key={idx} className="relative pl-8 animate-fade-in-up" style={{animationDelay: `${idx * 100}ms`}}>
-                               <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-primary border-2 border-brand-accent box-content z-10 shadow-[0_0_10px_rgba(79,70,229,0.5)]"></div>
-                               <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-brand-accent animate-ping opacity-40"></div>
-                               
-                               <div className="mb-3">
-                                   <span className="text-lg font-bold text-white capitalize">{new Date(day.date).toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+                  <div className="mt-6 pt-6 border-t border-white/10 bg-[#050910]/50 -mx-6 -mb-6 p-6 rounded-b-[1.4rem]">
+                      <div className="flex justify-between items-center mb-4">
+                          <span className="text-xs text-brand-text-secondary uppercase tracking-widest">Total a Pagar</span>
+                          <span className="text-3xl font-black text-white font-mono drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">₡{totalCost}</span>
+                      </div>
+                      
+                      {/* CUSTOM EXECUTE BUTTON */}
+                      <button
+                          onClick={handlePurchase}
+                          disabled={cart.length === 0}
+                          className={`
+                            group relative w-full py-5 rounded-xl overflow-hidden 
+                            transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+                            shadow-[0_0_40px_rgba(16,185,129,0.3)] hover:shadow-[0_0_60px_rgba(16,185,129,0.5)]
+                          `}
+                      >
+                          <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-green-500 to-emerald-700 bg-[length:200%_auto] opacity-90 animate-pulse-slow"></div>
+                          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
+                          <div className="absolute inset-0 translate-x-[-100%] group-hover:translate-x-[100%] bg-gradient-to-r from-transparent via-white/40 to-transparent transition-transform duration-700 ease-in-out skew-x-12"></div>
+                          <div className="relative z-10 flex flex-col items-center justify-center text-white gap-1">
+                               <div className="flex items-center gap-2 text-lg font-black font-mono uppercase tracking-[0.2em]">
+                                  <BoltIcon className="h-6 w-6 text-white"/> EJECUTAR CONTRATO
                                </div>
-                               
-                               <div className="grid grid-cols-1 gap-3">
-                                   {(['mediodia', 'tarde', 'noche'] as DrawType[]).map(drawType => {
-                                       const result = day.results[drawType];
-                                       if (!result.number && !result.reventadosNumber) return null;
+                               <span className="text-[9px] font-mono opacity-80">/// CONFIRMAR TRANSACCIÓN</span>
+                          </div>
+                      </button>
+                  </div>
+              </Card>
 
-                                       return (
-                                           <div key={drawType} className="relative group/item">
-                                               <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-cyan-500 rounded-xl blur opacity-0 group-hover/item:opacity-30 transition duration-500"></div>
-                                               
-                                               <div className="relative rounded-xl border border-brand-border overflow-hidden flex flex-col sm:flex-row h-20 group-hover/item:border-brand-accent/50 transition-colors bg-brand-primary">
-                                                   <div className={`bg-brand-primary/80 w-20 flex flex-col items-center justify-center border-r border-brand-border group-hover/item:border-brand-accent/30`}>
-                                                       {drawType === 'mediodia' && <SunIcon className="h-5 w-5 text-orange-400 mb-1 group-hover/item:scale-110 transition-transform"/>}
-                                                       {drawType === 'tarde' && <SunsetIcon className="h-5 w-5 text-purple-400 mb-1 group-hover/item:scale-110 transition-transform"/>}
-                                                       {drawType === 'noche' && <MoonIcon className="h-5 w-5 text-blue-400 mb-1 group-hover/item:scale-110 transition-transform"/>}
-                                                       <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[drawType].substring(0, 3)}</span>
-                                                   </div>
+              {/* Stats Mini Cards - Refined */}
+              <div className="grid grid-cols-2 gap-4">
+                  {/* CARD CALIENTES */}
+                  <div className="bg-[#050910] border border-brand-gold/30 p-4 rounded-2xl relative overflow-hidden group hover:border-brand-gold/60 transition-all shadow-[0_0_30px_rgba(245,158,11,0.1)]">
+                      <div className="absolute inset-0 bg-brand-gold/10 animate-pulse-slow"></div>
+                      <div className="absolute -inset-4 bg-brand-gold/20 blur-xl group-hover:opacity-70 transition opacity-30"></div>
+                      
+                      <h4 className="text-[10px] font-bold text-brand-gold uppercase mb-3 relative z-10 flex items-center gap-2">
+                          <SparklesIcon className="h-3 w-3"/> Calientes
+                      </h4>
+                      <div className="flex gap-2 relative z-10 justify-between">
+                          {stats.hotNumbers.map((n, i) => (
+                              <div key={i} className={`aspect-square flex-1 rounded-lg flex items-center justify-center font-black text-sm shadow-lg transition-transform duration-300 hover:scale-110 ${i === 0 ? 'bg-gradient-to-br from-brand-gold to-orange-600 text-black border border-white/20' : 'bg-black/60 text-brand-gold border border-brand-gold/20'}`}>
+                                  {n.num}
+                              </div>
+                          ))}
+                      </div>
+                  </div>
 
-                                                   <div className="flex-1 bg-brand-secondary flex flex-col items-center justify-center border-r border-brand-border relative group-hover/item:bg-brand-tertiary transition-colors">
-                                                       <span className="text-[8px] uppercase font-bold text-blue-400 absolute top-1 left-2 tracking-wider">Nuevos Tiempos</span>
-                                                       <span className="font-black text-4xl text-white font-mono tracking-tighter group-hover/item:text-brand-accent transition-colors drop-shadow-lg">{result.number || '--'}</span>
-                                                   </div>
-
-                                                   <div className="flex-1 bg-gradient-to-br from-brand-secondary to-red-900/5 flex flex-col items-center justify-center relative">
-                                                       <span className="text-[8px] uppercase font-bold text-red-400 absolute top-1 left-2 tracking-wider">Reventados</span>
-                                                        <div className="flex items-center gap-2">
-                                                            {result.ball === 'roja' ? (
-                                                                <>
-                                                                    <div className="w-4 h-4 rounded-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] animate-pulse"></div>
-                                                                    <span className="font-black text-2xl text-red-400 font-mono drop-shadow-[0_0_5px_rgba(220,38,38,0.8)]">{result.reventadosNumber || result.number}</span>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <div className="w-4 h-4 rounded-full bg-gray-300"></div>
-                                                                    <span className="text-xs font-bold text-brand-text-secondary uppercase">Blanca</span>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                   </div>
-                                               </div>
-                                           </div>
-                                       );
-                                   })}
-                               </div>
-                           </div>
-                       )) : (
-                           <div className="pl-8 text-sm text-brand-text-secondary italic py-4">
-                               El historial se está construyendo. Los resultados de hoy aparecerán aquí al finalizar el día.
-                           </div>
-                       )}
-                   </div>
-               </Card>
-           </div>
-        </div>
-
-        <div className="lg:col-span-4 animate-fade-in-up space-y-6" style={{animationDelay: '300ms'}}>
-            
-            <Card className="border-brand-accent/50 shadow-[0_0_30px_rgba(79,70,229,0.1)] hover:shadow-[0_0_50px_rgba(79,70,229,0.2)] transition-shadow duration-500" noPadding glowColor="from-brand-accent/50 to-purple-600/50">
-                <div className="bg-brand-accent/10 p-6 border-b border-brand-border flex justify-between items-center relative z-10">
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                        <ShoppingCartIcon className="h-5 w-5 text-brand-accent"/> Tu Jugada
-                    </h3>
-                    <span className={`bg-brand-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg transition-transform ${cart.length > 0 ? 'scale-100' : 'scale-0'}`}>
-                        {cart.length} Items
-                    </span>
-                </div>
-                
-                <div className="p-6 relative z-10">
-                    {cart.length > 0 ? (
-                        <div className="space-y-4">
-                            <div className="h-[300px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-                                {cart.map((item, index) => (
-                                    <div key={index} className="relative group/item">
-                                        <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-cyan-500 rounded-xl blur opacity-0 group-hover/item:opacity-40 transition duration-300"></div>
-                                        
-                                        <div className="relative bg-brand-tertiary/50 p-3 rounded-xl border border-brand-border flex justify-between items-center group-hover/item:border-brand-accent/50 transition-all duration-300 hover:bg-brand-tertiary animate-fade-in-up">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-lg bg-brand-secondary flex flex-col items-center justify-center border border-brand-border shadow-inner">
-                                                    <span className="text-lg font-black text-white leading-none">{item.number}</span>
-                                                </div>
-                                                <div>
-                                                    <div className="text-[10px] font-bold text-brand-text-secondary uppercase tracking-wider">{DRAW_LABELS[item.draw]}</div>
-                                                    <div className="text-xs text-white font-bold">Regular: {formatCurrency(item.amount)}</div>
-                                                    {item.reventadosAmount && item.reventadosAmount > 0 && (
-                                                        <div className="text-[10px] text-red-400 font-bold flex items-center gap-1 animate-pulse">
-                                                            <FireIcon className="h-3 w-3"/> {formatCurrency(item.reventadosAmount)}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <button onClick={() => handleRemoveFromCart(index)} className="text-brand-text-secondary hover:text-red-500 transition-colors p-2 hover:bg-white/5 rounded-lg group-hover/item:scale-110">
-                                                <TrashIcon className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="border-t border-brand-border pt-4 mt-4">
-                                <div className="flex justify-between items-center mb-4">
-                                    <span className="text-brand-text-secondary text-sm">Total a Pagar</span>
-                                    <span className="text-2xl font-black text-brand-success drop-shadow-[0_0_5px_rgba(34,197,94,0.5)]">{formatCurrency(totalCost)}</span>
-                                </div>
-                                <div className="relative group/btn">
-                                    <div className="absolute -inset-0.5 bg-green-500 rounded-xl blur opacity-30 group-hover/btn:opacity-100 transition duration-500"></div>
-                                    <Button 
-                                        onClick={handlePurchase} 
-                                        variant="success" 
-                                        className="relative w-full uppercase tracking-widest font-bold text-sm shadow-xl shadow-brand-success/20 hover:shadow-brand-success/40 transition-all hover:-translate-y-1"
-                                        disabled={totalCost > user.balance}
-                                    >
-                                        <div className="flex items-center justify-center gap-2">
-                                            <BoltIcon className="h-4 w-4" /> Confirmar Compra
-                                        </div>
-                                    </Button>
-                                </div>
-                                {totalCost > user.balance && (
-                                    <p className="text-center text-xs text-red-400 mt-2 font-bold animate-bounce">Saldo insuficiente</p>
-                                )}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="text-center py-12 opacity-50">
-                            <ShoppingCartIcon className="h-12 w-12 mx-auto mb-3 text-brand-text-secondary"/>
-                            <p className="text-sm text-brand-text-secondary">Tu carrito está vacío.</p>
-                        </div>
-                    )}
-                </div>
-            </Card>
-
-            <Card className="transition-colors duration-500 h-[300px] flex flex-col" glowColor="from-cyan-500/20 to-blue-500/20">
-                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 shrink-0 relative z-10">
-                    <CreditCardIcon className="h-4 w-4" /> Movimientos Recientes
-                </h4>
-                {transactions.length > 0 ? (
-                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-2 relative z-10 flex-1 min-h-0">
-                        {transactions.slice(0, 20).map((tx) => (
-                            <div key={tx.id} className="relative group/tx">
-                                <div className={`absolute -inset-0.5 rounded-lg blur opacity-0 group-hover/tx:opacity-40 transition duration-300 ${tx.type === 'deposit' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                                
-                                <div className="relative flex items-center justify-between p-2 rounded-lg bg-brand-primary/50 border border-brand-border hover:bg-brand-tertiary transition-colors">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`p-1.5 rounded-full ${
-                                            tx.type === 'deposit' ? 'bg-green-900/30 text-green-400' : 
-                                            tx.type === 'withdraw' ? 'bg-red-900/30 text-red-400' : 
-                                            tx.type === 'winnings' ? 'bg-yellow-900/30 text-yellow-400' :
-                                            'bg-blue-900/30 text-blue-400'
-                                        }`}>
-                                            {tx.type === 'deposit' && <ArrowTrendingUpIcon className="h-3 w-3"/>}
-                                            {tx.type === 'withdraw' && <ArrowTrendingDownIcon className="h-3 w-3"/>}
-                                            {tx.type === 'purchase' && <TicketIcon className="h-3 w-3"/>}
-                                            {tx.type === 'winnings' && <FireIcon className="h-3 w-3"/>}
-                                        </div>
-                                        <div>
-                                            <div className="text-[10px] font-bold text-white uppercase">
-                                                {tx.type === 'deposit' ? 'Recarga' : 
-                                                tx.type === 'withdraw' ? 'Retiro' : 
-                                                tx.type === 'winnings' ? 'Premio' : 'Compra'}
-                                            </div>
-                                            <div className="text-[9px] text-brand-text-secondary">{new Date(tx.date).toLocaleDateString()}</div>
-                                        </div>
-                                    </div>
-                                    <div className={`text-xs font-mono font-bold ${
-                                        tx.type === 'withdraw' || tx.type === 'purchase' ? 'text-brand-text-secondary' : 'text-brand-success'
-                                    }`}>
-                                        {(tx.type === 'withdraw' || tx.type === 'purchase') ? '-' : '+'}{formatCurrency(tx.amount)}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-8 opacity-50 flex-grow flex flex-col items-center justify-center relative z-10">
-                        <CreditCardIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
-                        <p className="text-xs text-brand-text-secondary">Sin movimientos.</p>
-                    </div>
-                )}
-            </Card>
-
-            <Card className="transition-colors duration-500 h-[300px] flex flex-col" glowColor="from-purple-500/20 to-pink-500/20">
-                <h4 className="text-xs font-bold text-brand-text-secondary uppercase mb-4 flex items-center gap-2 relative z-10 shrink-0">
-                    <TicketIcon className="h-4 w-4" /> Jugadas Recientes (7 Días)
-                </h4>
-                {recentTickets.length > 0 ? (
-                    <div className="overflow-y-auto custom-scrollbar pr-2 space-y-3 relative z-10 flex-1 min-h-0">
-                        {recentTickets.map((t, idx) => (
-                            <div key={t.id} className="relative group/ticket animate-fade-in-up" style={{animationDelay: `${idx * 50}ms`}}>
-                                <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-accent to-purple-600 rounded-xl blur opacity-0 group-hover/ticket:opacity-40 transition duration-300"></div>
-                                
-                                <div className="relative flex flex-col p-3 rounded-xl bg-brand-primary/50 border border-brand-border group-hover/ticket:border-brand-accent/30 transition-all shadow-sm hover:shadow-lg hover:-translate-x-1">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`text-2xl font-black ${t.reventadosAmount ? 'text-red-400 drop-shadow-[0_0_5px_rgba(220,38,38,0.5)]' : 'text-white'}`}>{t.number}</span>
-                                            <div className="flex flex-col">
-                                                <span className="text-[10px] font-bold uppercase text-brand-text-secondary">{DRAW_LABELS[t.draw]}</span>
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-[9px] text-brand-text-secondary">{formatTicketDate(t.purchaseDate)}</span>
-                                                    <span className={`text-[8px] font-bold uppercase px-1.5 rounded ${t.status === 'paid' ? 'bg-green-900/40 text-green-400' : t.status === 'pending' ? 'bg-yellow-900/20 text-yellow-500' : 'bg-red-900/20 text-red-500'}`}>
-                                                        {t.status === 'paid' ? 'PAGADO' : t.status === 'pending' ? 'PENDIENTE' : 'PERDIDO'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="font-bold text-white text-sm">{formatCurrency(t.amount)}</div>
-                                            {t.reventadosAmount && (
-                                                    <div className="text-[9px] font-bold text-red-400 flex items-center justify-end gap-1">
-                                                        <FireIcon className="h-3 w-3"/> +{formatCurrency(t.reventadosAmount)}
-                                                    </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover/ticket:opacity-100 transition-opacity duration-200">
-                                        <button 
-                                            onClick={() => handleRepeatBet(t)}
-                                            className="text-[10px] flex items-center gap-1 bg-brand-tertiary hover:bg-brand-accent text-brand-text-secondary hover:text-white px-2 py-1 rounded transition-colors"
-                                            title="Repetir Jugada"
-                                        >
-                                            <ArrowPathIcon className="h-3 w-3" /> Repetir
-                                        </button>
-                                        <button 
-                                            onClick={() => handleShareTicket(t)}
-                                            className={`text-[10px] flex items-center gap-1 ${copiedTicketId === t.id ? 'bg-green-600 text-white' : 'bg-brand-tertiary text-brand-text-secondary hover:text-white hover:bg-green-600'} px-2 py-1 rounded transition-all`}
-                                            title="Copiar para WhatsApp"
-                                        >
-                                            <ClipboardIcon className="h-3 w-3" /> {copiedTicketId === t.id ? '¡Copiado!' : 'Copiar'}
-                                        </button>
-                                    </div>
-
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/ticket:opacity-5 transition-opacity pointer-events-none">
-                                        {getDrawIcon(t.draw, "h-10 w-10")}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-8 opacity-50 relative z-10 flex-grow flex items-center justify-center">
-                        <div>
-                            <TicketIcon className="h-8 w-8 mx-auto mb-2 text-brand-text-secondary"/>
-                            <p className="text-xs text-brand-text-secondary">No hay jugadas recientes.</p>
-                        </div>
-                    </div>
-                )}
-            </Card>
-        </div>
+                  {/* CARD REVENTADOS */}
+                  <div className="bg-[#050910] border border-brand-danger/30 p-4 rounded-2xl relative overflow-hidden group hover:border-brand-danger/60 transition-all shadow-[0_0_30px_rgba(239,68,68,0.1)] flex flex-col justify-center">
+                      <div className="absolute inset-0 bg-brand-danger/10 animate-pulse-slow"></div>
+                      <div className="absolute -inset-4 bg-brand-danger/20 blur-xl group-hover:opacity-70 transition opacity-30"></div>
+                      
+                      <div className="absolute -right-4 -bottom-4 text-brand-danger/20 group-hover:text-brand-danger/30 transition-colors"><FireIcon className="h-20 w-20"/></div>
+                      <h4 className="text-[10px] font-bold text-white uppercase mb-1 relative z-10 flex items-center gap-2">
+                         <FireIcon className="h-3 w-3 text-brand-danger"/> Prob. Reventados
+                      </h4>
+                      <div className="text-4xl font-black text-brand-danger relative z-10 drop-shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse">
+                          {stats.redBallPercentage}%
+                      </div>
+                  </div>
+              </div>
+          </div>
       </div>
     </div>
   );

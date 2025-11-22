@@ -521,19 +521,26 @@ function App() {
       }
   };
 
-  // Client Actions
+  // Shared Purchase Logic (used by Client Panel AND Admin Panel POS)
   const handlePurchase = async (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => {
       const totalCost = tickets.reduce((sum, t) => sum + t.amount + (t.reventadosAmount || 0), 0);
       
       const user = users.find(u => u.id === userId);
-      if(!user || user.balance < totalCost) return;
+      if(!user) return { success: false, message: 'Usuario no encontrado' };
+      
+      if(user.balance < totalCost) return { success: false, message: 'Saldo insuficiente' };
 
       const newBalance = user.balance - totalCost;
       
-      // Optimistic update for client view
+      // Optimistic update
       optimisticUpdateUser(userId, { balance: newBalance });
 
-      await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+      // Update Balance
+      const { error: balError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+      if(balError) {
+           refresh();
+           return { success: false, message: balError.message };
+      }
 
       const ticketsToInsert = tickets.map(t => ({
           user_id: userId,
@@ -544,7 +551,11 @@ function App() {
           status: 'pending',
           purchase_date: new Date().toISOString()
       }));
-      await supabase.from('tickets').insert(ticketsToInsert);
+      
+      const { error: tktError } = await supabase.from('tickets').insert(ticketsToInsert);
+      if(tktError) {
+          return { success: false, message: tktError.message };
+      }
 
       await supabase.from('transactions').insert({
           user_id: userId,
@@ -552,7 +563,9 @@ function App() {
           amount: totalCost,
           details: `Compra ${tickets.length} tickets`
       });
+      
       refresh();
+      return { success: true };
   };
 
   const handleClaimWinnings = async (ticketId: string, amount: number, type: 'regular' | 'reventados') => {
@@ -627,6 +640,7 @@ function App() {
                         onForceResetPassword={() => {}}
                         onToggleBlock={handleToggleBlock}
                         onDeleteUser={handleDeleteUser}
+                        onPurchase={handlePurchase}
                     />
                 ) : currentUser ? (
                     <ClientPanel 
