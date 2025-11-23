@@ -156,6 +156,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
                 msg = 'Usuario ya registrado en la base de datos.';
             } else if (msg.includes('Password should be')) {
                 msg = 'La contraseña no cumple los protocolos de seguridad.';
+            } else if (msg.includes('Failed to fetch')) {
+                msg = 'ERROR DE RED: ¿Proyecto Pausado? Revise Dashboard de Supabase.';
             }
             
             setError(`ERR: ${msg}`);
@@ -174,7 +176,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
 
     } catch (err) {
         setAuthStatus('idle');
-        setError("NET_ERR: Fallo de conexión con el servidor.");
+        setError("NET_ERR: Fallo de conexión crítico con Supabase.");
     }
   };
 

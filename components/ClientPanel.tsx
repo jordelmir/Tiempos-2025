@@ -18,10 +18,7 @@ import {
   FireIcon,
   CpuIcon,
   BoltIcon,
-  SparklesIcon,
-  CalendarDaysIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon
+  SparklesIcon
 } from './icons/Icons';
 
 interface ClientPanelProps {
@@ -66,7 +63,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
   const [cart, setCart] = useState<NewTicket[]>([]);
   const [error, setError] = useState('');
   const [isAddingToCart, setIsAddingToCart] = useState(false);
-  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
 
   const [actionModal, setActionModal] = useState<{isOpen: boolean, amount: number, isReventados: boolean}>({
       isOpen: false, amount: 0, isReventados: false
@@ -163,27 +159,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
       case 'tarde': return <SunsetIcon className="h-5 w-5" />;
       case 'noche': return <MoonIcon className="h-5 w-5" />;
     }
-  };
-
-  // Helper render for history badges
-  const renderHistoryBadge = (draw: DrawType, result: any) => {
-      if(!result.number) return <div className="text-gray-700 text-xs">-</div>;
-      
-      const isRed = result.ball === 'roja';
-      
-      return (
-          <div className="flex flex-col items-center gap-1">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg shadow-lg border relative ${
-                  isRed 
-                  ? 'bg-gradient-to-br from-red-600 to-red-800 text-white border-red-500' 
-                  : 'bg-[#0B101B] text-white border-white/20'
-              }`}>
-                  {result.number}
-                  {isRed && <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse border border-black"></div>}
-              </div>
-              {isRed && <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider">ROJA</span>}
-          </div>
-      );
   };
 
   return (
@@ -652,69 +627,6 @@ const ClientPanel: React.FC<ClientPanelProps> = ({
                   </div>
               </div>
           </div>
-      </div>
-      
-      {/* HISTORY SECTION - NEW ADDITION FOR CLIENTS */}
-      <div className="mt-12 animate-fade-in-up">
-          <div className="flex items-center gap-3 mb-6">
-              <CalendarDaysIcon className="h-6 w-6 text-brand-cyan" />
-              <h3 className="text-2xl font-black text-white uppercase tracking-tight">Historial Reciente</h3>
-              <div className="h-px bg-brand-border flex-grow ml-4"></div>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-4">
-              {historyResults.slice(0, isHistoryExpanded ? undefined : 5).map((day, idx) => (
-                  <div key={idx} className="bg-[#050910]/50 border border-white/10 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-6 hover:border-brand-cyan/30 transition-colors">
-                      <div className="flex items-center gap-4 min-w-[150px]">
-                          <div className="w-12 h-12 bg-white/5 rounded-lg flex flex-col items-center justify-center border border-white/10">
-                              <span className="text-xs font-bold text-gray-400 uppercase">{new Date(day.date).toLocaleDateString('es-CR', { month: 'short' }).slice(0,3)}</span>
-                              <span className="text-xl font-black text-white">{new Date(day.date).getDate()}</span>
-                          </div>
-                          <div>
-                              <p className="text-sm font-bold text-white uppercase">{new Date(day.date).toLocaleDateString('es-CR', { weekday: 'long' })}</p>
-                              <p className="text-[10px] text-gray-500 font-mono">{new Date(day.date).getFullYear()}</p>
-                          </div>
-                      </div>
-                      
-                      <div className="flex-grow grid grid-cols-3 gap-4 w-full md:w-auto">
-                          {/* Mediodia */}
-                          <div className="flex flex-col items-center bg-black/20 p-2 rounded-lg border border-white/5">
-                              <span className="text-[9px] text-orange-400 font-bold uppercase mb-2 flex items-center gap-1"><SunIcon className="h-3 w-3"/> 12:55 PM</span>
-                              {renderHistoryBadge('mediodia', day.results.mediodia)}
-                          </div>
-                          {/* Tarde */}
-                          <div className="flex flex-col items-center bg-black/20 p-2 rounded-lg border border-white/5">
-                              <span className="text-[9px] text-purple-400 font-bold uppercase mb-2 flex items-center gap-1"><SunsetIcon className="h-3 w-3"/> 4:30 PM</span>
-                              {renderHistoryBadge('tarde', day.results.tarde)}
-                          </div>
-                          {/* Noche */}
-                          <div className="flex flex-col items-center bg-black/20 p-2 rounded-lg border border-white/5">
-                              <span className="text-[9px] text-blue-400 font-bold uppercase mb-2 flex items-center gap-1"><MoonIcon className="h-3 w-3"/> 7:30 PM</span>
-                              {renderHistoryBadge('noche', day.results.noche)}
-                          </div>
-                      </div>
-                  </div>
-              ))}
-              
-              {historyResults.length === 0 && (
-                  <div className="text-center py-12 text-gray-500 border border-dashed border-white/10 rounded-xl">
-                      No hay historial disponible sincronizado aún.
-                  </div>
-              )}
-          </div>
-
-          {/* HISTORY EXPANSION BUTTON */}
-          {historyResults.length > 5 && (
-              <div className="mt-6 flex justify-center">
-                  <Button 
-                      variant="secondary" 
-                      onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
-                      className="w-full md:w-auto min-w-[200px]"
-                  >
-                      {isHistoryExpanded ? 'MOSTRAR MENOS' : 'VER HISTORIAL COMPLETO'}
-                  </Button>
-              </div>
-          )}
       </div>
     </div>
   );

@@ -10,151 +10,211 @@ import AuthScreen from './components/AuthScreen';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import SecurityModal from './components/SecurityModal';
-import { BoltIcon, ClipboardCheckIcon, ExclamationTriangleIcon, SparklesIcon, KeyIcon, CpuIcon, ShieldCheckIcon, RefreshIcon } from './components/icons/Icons';
+import { BoltIcon, ClipboardCheckIcon, ExclamationTriangleIcon, SparklesIcon, GlobeAltIcon } from './components/icons/Icons';
 
-// --- DATABASE REPAIR MODAL ---
+// --- DATABASE REPAIR / DIAGNOSTIC MODAL ---
 const DatabaseFixModal = ({ error, onClose }: { error: string, onClose: () => void }) => {
-    const [activeTab, setActiveTab] = useState<'repair' | 'restore'>(error.includes("Manual") ? 'repair' : 'repair');
+    const isNetworkError = error.toLowerCase().includes('fetch') || error.toLowerCase().includes('connection') || error.toLowerCase().includes('connect') || error.toLowerCase().includes('network');
 
-    const repairScript = `
--- SCRIPT V34: CORRECCIÓN DE RESTRICCIONES (CONSTRAINT) Y ACCESO
--- Ejecutar si recibe error "violates check constraint" o pantalla vacía.
+    const sqlScript = `
+-- SCRIPT V35: SOLUCIÓN DEFINITIVA DE RECURSIÓN Y CARGA INFINITA
+-- Este script rompe el ciclo de permisos utilizando Metadata en lugar de consultas a tabla.
 
 BEGIN;
 
--- 1. CORREGIR RESTRICCIÓN DE ROLES (El error 23514 suele ser esto)
-ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
-ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check 
-CHECK (role IN ('owner', 'seller', 'client', 'admin')); -- Ampliar roles permitidos
-
--- 2. DESACTIVAR RLS TEMPORALMENTE
+-- 1. DESACTIVAR RLS TEMPORALMENTE PARA PERMITIR ARREGLOS
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets DISABLE ROW LEVEL SECURITY;
 
--- 3. CREAR PERFIL PARA TU CORREO (Si falta)
-INSERT INTO public.profiles (id, email, name, role, balance, created_at)
-SELECT 
-  id, 
-  email, 
-  COALESCE(raw_user_meta_data->>'name', 'Dueño Sistema'),
-  'owner',
-  9999999,
-  created_at
-FROM auth.users
-WHERE email = 'elysiumalternative9@gmail.com'
-AND id NOT IN (SELECT id FROM public.profiles);
+-- 2. LIMPIEZA DE POLÍTICAS ANTIGUAS
+DROP POLICY IF EXISTS "Owner full access" ON public.profiles;
+DROP POLICY IF EXISTS "Seller read all" ON public.profiles;
+DROP POLICY IF EXISTS "Seller update balance" ON public.profiles;
+DROP POLICY IF EXISTS "Client read own" ON public.profiles;
+DROP POLICY IF EXISTS "Owner all txs" ON public.transactions;
+DROP POLICY IF EXISTS "Owner all tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Public read results" ON public.daily_results;
 
--- 4. FORZAR ROL DE DUEÑO (Si ya existía)
-UPDATE public.profiles 
-SET role = 'owner', balance = 9999999
-WHERE email = 'elysiumalternative9@gmail.com';
+-- 3. FUNCIÓN DE SINCRONIZACIÓN (CLAVE PARA EVITAR RECURSIÓN)
+-- Esto asegura que el rol en la base de datos coincida con el token de auth
+CREATE OR REPLACE FUNCTION public.sync_user_role()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE auth.users
+  SET raw_user_meta_data = 
+      coalesce(raw_user_meta_data, '{}'::jsonb) || 
+      jsonb_build_object('role', NEW.role, 'name', NEW.name)
+  WHERE id = NEW.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. SINCRONIZAR OTROS USUARIOS FANTASMA
-INSERT INTO public.profiles (id, email, name, role, balance, created_at)
-SELECT 
-  id, 
-  email, 
-  COALESCE(raw_user_meta_data->>'name', 'Usuario Recuperado'),
-  'client',
-  0,
-  created_at
-FROM auth.users
-WHERE id NOT IN (SELECT id FROM public.profiles);
+-- Trigger para mantener sincronía
+DROP TRIGGER IF EXISTS on_profile_update ON public.profiles;
+CREATE TRIGGER on_profile_update
+AFTER UPDATE ON public.profiles
+FOR EACH ROW EXECUTE FUNCTION public.sync_user_role();
 
--- 6. RESTAURAR POLÍTICAS DE SEGURIDAD
+-- 4. POLÍTICAS BASADAS EN METADATA (CERO RECURSIÓN)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_results ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "owner_manage_all" ON public.profiles;
-CREATE POLICY "owner_manage_all" ON public.profiles
-FOR ALL USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'owner' );
+-- Perfiles
+CREATE POLICY "Owner Access" ON public.profiles
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
 
-DROP POLICY IF EXISTS "read_own_profile" ON public.profiles;
-CREATE POLICY "read_own_profile" ON public.profiles
+CREATE POLICY "Seller Access" ON public.profiles
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
+
+CREATE POLICY "Self Access" ON public.profiles
 FOR SELECT USING ( auth.uid() = id );
 
+-- Transacciones
+CREATE POLICY "Owner Txs" ON public.transactions
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
+
+CREATE POLICY "Seller Txs" ON public.transactions
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
+
+CREATE POLICY "Self Txs" ON public.transactions
+FOR SELECT USING ( auth.uid() = user_id );
+
+-- Tickets
+CREATE POLICY "Owner Tickets" ON public.tickets
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
+
+CREATE POLICY "Seller Tickets" ON public.tickets
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
+
+CREATE POLICY "Self Tickets" ON public.tickets
+FOR SELECT USING ( auth.uid() = user_id );
+
+-- Resultados (Públicos lectura, Owner escritura)
+CREATE POLICY "Public Results" ON public.daily_results FOR SELECT USING (true);
+CREATE POLICY "Owner Results" ON public.daily_results FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
+
+-- 5. REPARACIÓN DE TRIGGER DE CREACIÓN DE USUARIO
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, name, role, balance)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'name', 'Nuevo Usuario'),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'client'),
+    0
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET 
+    email = EXCLUDED.email,
+    role = EXCLUDED.role;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 COMMIT;
-`;
 
-    const restoreScript = `
--- SCRIPT SIMPLE: RECUPERAR DUEÑO
--- Úselo si V34 falla.
+-- ⬇⬇⬇ PASO FINAL: ESTABLECER DUEÑO ⬇⬇⬇
+-- Reemplace el correo y ejecute estas líneas al final:
 
+/*
 UPDATE public.profiles 
-SET role = 'owner' 
-WHERE email = 'elysiumalternative9@gmail.com';
+SET role = 'owner', balance = 9999999 
+WHERE email = 'TU_EMAIL_AQUI';
+*/
 `;
-
-    const activeScript = activeTab === 'repair' ? repairScript : restoreScript;
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-            <div className="w-full max-w-4xl bg-[#0f172a] border-2 border-red-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(239,68,68,0.3)] overflow-hidden flex flex-col max-h-[90vh] animate-bounce-in">
+            <div className="w-full max-w-4xl bg-[#0f172a] border-2 border-purple-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(168,85,247,0.3)] overflow-hidden flex flex-col max-h-[90vh] animate-bounce-in">
                 <div className="flex items-start gap-4 mb-6">
-                    <div className="p-4 bg-red-900/30 rounded-full border border-red-500 animate-pulse">
-                        <ShieldCheckIcon className="h-10 w-10 text-red-500" />
+                    <div className={`p-4 rounded-full border ${isNetworkError ? 'bg-red-900/30 border-red-500' : 'bg-purple-900/30 border-purple-500'} animate-pulse`}>
+                        {isNetworkError ? <GlobeAltIcon className="h-10 w-10 text-red-500"/> : <SparklesIcon className="h-10 w-10 text-purple-500" />}
                     </div>
                     <div>
                         <h2 className="text-2xl font-black text-white uppercase tracking-widest">
-                            {activeTab === 'repair' ? 'Protocolo de Reparación (V34)' : 'Recuperación Simple'}
+                            {isNetworkError ? 'ERROR DE CONEXIÓN DETECTADO' : 'Reparación V35 (Anti-Bloqueo)'}
                         </h2>
-                        <p className="text-red-300 font-mono mt-2 text-sm">
-                           {activeTab === 'repair' 
-                             ? 'Corrige error de restricciones SQL y restaura perfil.' 
-                             : 'Fuerza el rol de dueño en el perfil existente.'}
+                        <p className={`${isNetworkError ? 'text-red-300' : 'text-purple-300'} font-mono mt-2 text-sm`}>
+                           {isNetworkError ? 'El sistema no puede comunicarse con la base de datos Supabase.' : 'Soluciona la pantalla de "Cargando..." eliminando la recursión de políticas.'}
                         </p>
                         {error && (
-                             <p className="text-yellow-400 font-mono mt-2 text-xs bg-yellow-950/50 p-2 rounded border border-yellow-900">
-                                Detección: {error}
+                             <p className="text-red-400 font-mono mt-2 text-xs bg-red-950/50 p-2 rounded border border-red-900 truncate">
+                                DIAGNÓSTICO: {error}
                             </p>
                         )}
                     </div>
                 </div>
 
-                {/* TABS */}
-                <div className="flex gap-4 mb-4 border-b border-gray-700 pb-1">
-                    <button 
-                        onClick={() => setActiveTab('repair')}
-                        className={`px-4 py-2 font-bold text-sm uppercase tracking-wider transition-colors border-b-2 ${activeTab === 'repair' ? 'text-red-400 border-red-500' : 'text-gray-500 border-transparent hover:text-white'}`}
-                    >
-                        <span className="flex items-center gap-2"><BoltIcon className="h-4 w-4"/> REPARACIÓN V34</span>
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('restore')}
-                        className={`px-4 py-2 font-bold text-sm uppercase tracking-wider transition-colors border-b-2 ${activeTab === 'restore' ? 'text-red-400 border-red-500' : 'text-gray-500 border-transparent hover:text-white'}`}
-                    >
-                        <span className="flex items-center gap-2"><KeyIcon className="h-4 w-4"/> Solo Rol Dueño</span>
-                    </button>
-                </div>
-                
-                <div className="bg-blue-900/20 border border-blue-600/30 p-4 rounded-lg mb-6 text-blue-200 text-sm">
-                    <strong>INSTRUCCIONES:</strong> Copie el código SQL y ejecútelo en el <strong>SQL Editor</strong> de Supabase.
-                    <br/><span className="text-xs opacity-70">Esto arreglará el problema de "pantalla vacía" y errores de "check constraint".</span>
-                </div>
+                {isNetworkError ? (
+                    <div className="flex-grow flex flex-col items-center justify-center p-8 bg-[#020617] rounded-xl border border-red-900/50">
+                        <ExclamationTriangleIcon className="h-16 w-16 text-brand-gold mb-6 animate-pulse"/>
+                        <h3 className="text-xl font-bold text-white mb-4 text-center">Posibles Causas de "Failed to Fetch"</h3>
+                        <ul className="text-brand-text-secondary space-y-3 mb-8 text-sm font-mono bg-black/40 p-6 rounded-lg border border-white/5 w-full max-w-lg">
+                            <li className="flex items-center gap-2"><span className="text-red-500">⚠</span> Proyecto Supabase PAUSADO por inactividad.</li>
+                            <li className="flex items-center gap-2"><span className="text-red-500">⚠</span> Bloqueador de Anuncios (AdBlock) activo.</li>
+                            <li className="flex items-center gap-2"><span className="text-red-500">⚠</span> Firewall corporativo o sin internet.</li>
+                        </ul>
+                        <div className="flex gap-4">
+                            <a 
+                                href="https://supabase.com/dashboard/projects" 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="px-6 py-3 rounded-xl bg-brand-accent hover:bg-brand-accent/80 text-white font-bold transition-colors flex items-center gap-2 shadow-lg"
+                            >
+                                <GlobeAltIcon className="h-4 w-4"/>
+                                IR AL DASHBOARD PARA REACTIVAR
+                            </a>
+                            <button onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-bold border border-white/10">
+                                Reintentar Ahora
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div className="bg-blue-900/20 border border-blue-600/30 p-4 rounded-lg mb-6 text-blue-200 text-sm">
+                            <strong>INSTRUCCIONES:</strong> Copie el script y ejecútelo en Supabase para reparar los permisos y el acceso.
+                        </div>
 
-                <div className="relative flex-grow overflow-hidden rounded-xl border border-gray-700 bg-[#020617]">
-                    <div className="absolute top-0 left-0 right-0 bg-[#1e293b] px-4 py-2 flex justify-between items-center border-b border-gray-700">
-                        <span className="text-xs font-mono text-gray-400">
-                            SQL_EDITOR_INPUT.sql
-                        </span>
-                        <button 
-                            onClick={() => navigator.clipboard.writeText(activeScript)}
-                            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                        >
-                            <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT
+                        <div className="relative flex-grow overflow-hidden rounded-xl border border-gray-700 bg-[#020617]">
+                            <div className="absolute top-0 left-0 right-0 bg-[#1e293b] px-4 py-2 flex justify-between items-center border-b border-gray-700">
+                                <span className="text-xs font-mono text-gray-400">fix_infinite_loading_v35.sql</span>
+                                <button 
+                                    onClick={() => navigator.clipboard.writeText(sqlScript)}
+                                    className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors shadow-[0_0_15px_rgba(147,51,234,0.4)]"
+                                >
+                                    <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT
+                                </button>
+                            </div>
+                            <pre className="p-4 pt-12 text-[10px] sm:text-xs text-green-400 font-mono overflow-auto h-full custom-scrollbar whitespace-pre-wrap">
+                                {sqlScript}
+                            </pre>
+                        </div>
+                    </>
+                )}
+
+                {!isNetworkError && (
+                    <div className="mt-6 flex justify-end gap-4">
+                        <button onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors">
+                            Cancelar
+                        </button>
+                        <button onClick={onClose} className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold shadow-lg transition-colors">
+                            Entendido (Recargar)
                         </button>
                     </div>
-                    <pre className="p-4 pt-12 text-[10px] sm:text-xs text-green-400 font-mono overflow-auto h-full custom-scrollbar whitespace-pre-wrap">
-                        {activeScript}
-                    </pre>
-                </div>
-
-                <div className="mt-6 flex justify-end gap-4">
-                    <button onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors">
-                        Cerrar y Recargar
-                    </button>
-                    <button onClick={onClose} className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg transition-colors">
-                        Entendido
-                    </button>
-                </div>
+                )}
+                
+                {isNetworkError && (
+                    <div className="mt-6 text-center">
+                        <button onClick={onClose} className="text-xs text-gray-500 hover:text-white underline">
+                            Cerrar este diagnóstico (No recomendado)
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -162,7 +222,7 @@ WHERE email = 'elysiumalternative9@gmail.com';
 
 function App() {
   const [session, setSession] = useState<any>(null);
-  const [view, setView] = useState<'admin' | 'client'>('client'); 
+  const [view, setView] = useState<'admin' | 'client'>('client');
   const [showSecurity, setShowSecurity] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [showFixModal, setShowFixModal] = useState(false);
@@ -170,11 +230,27 @@ function App() {
 
   // Check Auth State on Mount
   useEffect(() => {
+      // SAFETY TIMEOUT: If auth takes too long (stuck loading), force rendering to show potential errors/modals
+      const safetyTimer = setTimeout(() => {
+          if (authChecking) {
+              console.warn("Auth check timed out - forcing render");
+              setAuthChecking(false);
+          }
+      }, 2500); // 2.5 seconds timeout
+
       supabase.auth.getSession().then(({ data: { session } }) => {
           setSession(session);
           const role = session?.user?.user_metadata?.role;
           if(role === 'owner' || role === 'seller') setView('admin');
           setAuthChecking(false);
+          clearTimeout(safetyTimer);
+      }).catch((err: any) => {
+          console.error("Critical Session Error:", err);
+          const msg = err.message || "Fallo de conexión inicial";
+          setFixModalError(msg);
+          setShowFixModal(true);
+          setAuthChecking(false);
+          clearTimeout(safetyTimer);
       });
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -182,35 +258,32 @@ function App() {
           const role = session?.user?.user_metadata?.role;
           if(role === 'owner' || role === 'seller') setView('admin');
           else if(session) setView('client');
+          setAuthChecking(false);
       });
 
-      return () => subscription.unsubscribe();
+      return () => {
+          subscription.unsubscribe();
+          clearTimeout(safetyTimer);
+      };
   }, []);
 
   // Fetch Data Hook
-  // FIX: Ensure undefined is not passed to hook which expects string | null
-  const { users, transactions, dbDailyResults, loading, error, refresh, optimisticUpdateResult, optimisticAddUser, optimisticUpdateUser, optimisticDeleteUser } = useSupabaseData(session?.user?.id || null);
+  const { users, transactions, dbDailyResults, loading, error, refresh, optimisticUpdateResult, optimisticAddUser, optimisticUpdateUser, optimisticDeleteUser } = useSupabaseData(session?.user.id);
 
   useEffect(() => {
       if (error) {
           const lowerErr = error.toLowerCase();
-          // Detectar errores críticos de base de datos para ofrecer solución inmediata
-          if (lowerErr.includes('recursion') || lowerErr.includes('policy') || lowerErr.includes('permission') || lowerErr.includes('constraint') || lowerErr.includes('violates')) {
+          // Detect infinite recursion, permission issues OR NETWORK ISSUES
+          if (lowerErr.includes('recursion') || lowerErr.includes('policy') || lowerErr.includes('permission') || lowerErr.includes('fetch') || lowerErr.includes('network')) {
               setFixModalError(error);
               setShowFixModal(true);
           }
       }
   }, [error]);
 
-  // --- DATA PROCESSING ---
-  const currentUser = useMemo(() => {
-      if (!session || !users.length) return null;
-      return users.find(u => u.id === session.user.id) || null;
-  }, [session, users]);
-
   // --- JPS AUTO-SYNC ENGINE (Only Owner) ---
   useEffect(() => {
-      if (currentUser?.role !== 'owner') return;
+      if (session?.user?.user_metadata?.role !== 'owner') return;
 
       const syncJPS = async () => {
           try {
@@ -245,7 +318,13 @@ function App() {
       const interval = setInterval(syncJPS, 60000 * 5); 
       syncJPS();
       return () => clearInterval(interval);
-  }, [currentUser, dbDailyResults, refresh]);
+  }, [session, dbDailyResults, refresh]);
+
+  // --- DATA PROCESSING ---
+  const currentUser = useMemo(() => {
+      if (!session || !users.length) return null;
+      return users.find(u => u.id === session.user.id) || null;
+  }, [session, users]);
 
   const processedHistory = useMemo(() => {
       const groups: Record<string, HistoryResult> = {};
@@ -290,7 +369,7 @@ function App() {
               data: {
                   name: data.name,
                   phone: data.phone,
-                  role: 'client', 
+                  role: 'client',
                   balance: 0,
                   cedula: data.cedula || ''
               }
@@ -311,7 +390,7 @@ function App() {
 
       const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
       if (error) {
-          setFixModalError(`Error: ${error.message}`);
+          setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V35.`);
           setShowFixModal(true);
           refresh();
           return;
@@ -320,7 +399,7 @@ function App() {
           user_id: userId,
           type: 'deposit',
           amount: amount,
-          details: currentUser?.role === 'owner' ? 'Recarga Dueño' : `Recarga Vendedor`
+          details: currentUser?.role === 'owner' ? 'Recarga Dueño' : `Recarga Vendedor ${currentUser?.name.split(' ')[0]}`
       });
       refresh();
   };
@@ -334,7 +413,7 @@ function App() {
 
       const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
       if (error) {
-          setFixModalError(`Error: ${error.message}`);
+          setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V35.`);
           setShowFixModal(true);
           refresh();
           return;
@@ -343,7 +422,7 @@ function App() {
           user_id: userId,
           type: 'withdraw',
           amount: amount,
-          details: currentUser?.role === 'owner' ? 'Retiro Dueño' : `Retiro Vendedor`
+          details: currentUser?.role === 'owner' ? 'Retiro Dueño' : `Retiro Vendedor ${currentUser?.name.split(' ')[0]}`
       });
       refresh();
   };
@@ -374,7 +453,7 @@ function App() {
           }
 
           if (result.error) {
-              setFixModalError(`Error DB: ${result.error.message}`);
+              setFixModalError(`Error DB: ${result.error.message}. Ejecute Script V35.`);
               setShowFixModal(true);
               return false;
           }
@@ -383,13 +462,14 @@ function App() {
           return true;
 
       } catch (e: any) {
-          setFixModalError(`Excepción: ${e.message}`);
+          setFixModalError(`Excepción: ${e.message}. Ejecute Script V35.`);
           setShowFixModal(true);
           return false;
       }
   };
 
   const handleRegisterUserInternal = async (userData: Partial<User>, targetRole: 'client' | 'seller') => {
+      // For Owner role, we use RPC to bypass registration limits and set roles immediately
       const rpcFunc = targetRole === 'seller' ? 'create_seller_by_owner' : 'create_user_by_admin';
       
       const { data, error } = await supabase.rpc(rpcFunc, {
@@ -401,8 +481,11 @@ function App() {
       });
 
       if (error) {
-          setFixModalError(`Falta función '${rpcFunc}'. Ejecute Script V34.`);
-          setShowFixModal(true);
+          if (error.message.includes('function') || error.message.includes('permission')) {
+               setFixModalError(`Falta función '${rpcFunc}'. Ejecute el Script V35.`);
+               setShowFixModal(true);
+               return { error: { message: "Falta configuración DB. Ver modal." }, data: null };
+          }
           return { error, data: null };
       }
 
@@ -450,7 +533,7 @@ function App() {
           refresh();
           return true;
       } catch (error: any) {
-          setFixModalError(`Error: ${error.message}`);
+          setFixModalError(`Error de Eliminación: ${error.message}. Ejecute Script V35.`);
           setShowFixModal(true);
           refresh();
           return false;
@@ -500,7 +583,8 @@ function App() {
       });
       
       if (error) {
-          console.error(error);
+          setFixModalError(`Error RPC Claim: ${error.message}. Ejecute Script V35.`);
+          setShowFixModal(true);
           return;
       }
 
@@ -514,8 +598,9 @@ function App() {
 
   if (authChecking) {
       return (
-          <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
+          <div className="min-h-screen bg-[#0B0F19] flex flex-col items-center justify-center gap-4">
               <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+              <p className="text-gray-500 text-xs font-mono animate-pulse">Estableciendo enlace seguro...</p>
           </div>
       );
   }
@@ -523,7 +608,7 @@ function App() {
   return (
     <>
       {showFixModal && (
-          <DatabaseFixModal error={fixModalError || "Reparación Manual"} onClose={() => setShowFixModal(false)} />
+          <DatabaseFixModal error={fixModalError || "Error Desconocido"} onClose={() => setShowFixModal(false)} />
       )}
 
       {!session ? (
@@ -540,12 +625,12 @@ function App() {
              <Header 
                 view={view} 
                 setView={setView} 
-                currentUser={currentUser || { id: 'ghost', name: 'Cargando Perfil...', email: '', role: 'client', balance: 0, phone: '', password: '', tickets: [] }} 
+                currentUser={currentUser || { id: session.user.id, name: 'Cargando...', email: session.user.email, role: session.user.user_metadata?.role || 'client', balance: 0, phone: '', password: '', tickets: [] } as any} 
                 onLogout={handleLogout} 
              />
              
              <main className="container mx-auto px-4 pt-8 relative z-10">
-                {view === 'admin' && currentUser && (currentUser.role === 'owner' || currentUser.role === 'seller') ? (
+                {view === 'admin' && (currentUser?.role === 'owner' || currentUser?.role === 'seller') ? (
                     <AdminPanel 
                         currentUser={currentUser}
                         users={users}
@@ -562,10 +647,10 @@ function App() {
                         onDeleteUser={handleDeleteUser}
                         onPurchase={handlePurchase}
                     />
-                ) : currentUser ? (
+                ) : (
                     <ClientPanel 
-                        user={currentUser}
-                        transactions={transactions.filter(t => t.userId === currentUser.id)}
+                        user={currentUser || { id: 'temp', name: '...', balance: 0, tickets: [], role: 'client' } as any}
+                        transactions={transactions.filter(t => t.userId === session.user.id)}
                         dailyResults={dbDailyResults}
                         historyResults={processedHistory}
                         nextDrawTime={nextDrawTime}
@@ -573,32 +658,9 @@ function App() {
                         onPurchase={handlePurchase}
                         onClaimWinnings={handleClaimWinnings}
                     />
-                ) : (
-                    // MANEJO DE ESTADO "NO APARECE NADA" (Usuario Fantasma)
-                    <div className="min-h-[60vh] flex flex-col items-center justify-center text-center space-y-6 animate-fade-in-up px-4">
-                        <div className="w-24 h-24 bg-red-900/20 border-2 border-red-500 rounded-full flex items-center justify-center animate-pulse shadow-[0_0_30px_rgba(239,68,68,0.4)]">
-                             <ExclamationTriangleIcon className="h-12 w-12 text-red-500" />
-                        </div>
-                        <div className="bg-[#0f172a] p-6 rounded-2xl border border-red-500/30 max-w-lg shadow-2xl">
-                            <h2 className="text-3xl font-black text-white uppercase mb-2">ERROR DE PERFIL</h2>
-                            <p className="text-gray-300 mb-4 text-sm">
-                                Su cuenta de usuario existe, pero la base de datos rechazó la creación de su perfil debido a restricciones de seguridad obsoletas.
-                                <br/><br/>
-                                <span className="text-red-400 font-bold bg-red-950/40 p-1 rounded">Constraint Violation: profiles_role_check</span>
-                            </p>
-                            <button 
-                                onClick={() => { setFixModalError("Error de Restricción SQL"); setShowFixModal(true); }}
-                                className="w-full py-4 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all transform hover:scale-105"
-                            >
-                                <BoltIcon className="h-6 w-6" />
-                                EJECUTAR SOLUCIÓN V34
-                            </button>
-                        </div>
-                        <p className="text-[10px] text-gray-600 font-mono">CODE: ROLE_CONSTRAINT_VIOLATION</p>
-                    </div>
                 )}
              </main>
-             <Footer onOpenGodMode={() => { setFixModalError("Acceso Manual a Consola"); setShowFixModal(true); }} />
+             <Footer onOpenGodMode={() => { setFixModalError("Acceso Manual a Consola de Dios"); setShowFixModal(true); }} />
         </div>
       )}
       <SecurityModal isOpen={showSecurity} onClose={() => setShowSecurity(false)} />
