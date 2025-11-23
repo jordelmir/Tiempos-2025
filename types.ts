@@ -21,7 +21,7 @@ export interface User {
   password: string; // Hashed password
   phone: string;
   balance: number;
-  role: 'owner' | 'seller' | 'client'; // UPDATED ROLES
+  role: 'owner' | 'seller' | 'client' | 'admin'; // UPDATED ROLES to match DB Constraint V34
   blocked?: boolean; // New field for security lockout
   adminId?: string; // ID of the admin who manages this user
   tickets: Ticket[];
