@@ -14,7 +14,7 @@ export const mockUsers: User[] = [
     password: defaultHash,
     phone: '8888-1234',
     balance: 15000,
-    role: 'admin', // Elena is the Admin
+    role: 'owner', // Elena is the Admin
     tickets: [
       { id: 'tkt_1', number: '23', amount: 1000, purchaseDate: new Date(), draw: 'mediodia' },
       { id: 'tkt_2', number: '78', amount: 500, purchaseDate: new Date(), draw: 'noche' },

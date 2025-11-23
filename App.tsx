@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import type { User, Ticket, DailyResult, DrawType, BallColor, HistoryResult, Transaction } from './types';
-import { fetchOfficialData } from './utils/jpsAgent';
+import { fetchOfficialData, getNextDrawLabel } from './utils/jpsAgent';
 import { useSupabaseData } from './hooks/useSupabaseData';
 import AdminPanel from './components/AdminPanel';
 import ClientPanel from './components/ClientPanel';
@@ -10,159 +9,163 @@ import AuthScreen from './components/AuthScreen';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import SecurityModal from './components/SecurityModal';
-import { BoltIcon, ClipboardCheckIcon, ExclamationTriangleIcon } from './components/icons/Icons';
+import { BoltIcon, ClipboardCheckIcon, ExclamationTriangleIcon, SparklesIcon } from './components/icons/Icons';
 
 // --- DATABASE REPAIR MODAL ---
 const DatabaseFixModal = ({ error, onClose }: { error: string, onClose: () => void }) => {
     const sqlScript = `
--- SCRIPT V24: REPARACIÓN INTEGRAL DE PERMISOS Y BORRADO
--- Ejecute este script en el Editor SQL de Supabase para corregir errores de eliminación.
+-- SCRIPT V30: GOD MODE RECOVERY (TOTAL RESET)
+-- Ejecute este script en el Editor SQL de Supabase para restaurar acceso total.
 
 BEGIN;
 
--- 1. Limpiar Policies Antiguas (Evita conflictos)
-DROP POLICY IF EXISTS "Admins all tickets" ON public.tickets;
-DROP POLICY IF EXISTS "Users own tickets" ON public.tickets;
-DROP POLICY IF EXISTS "Users insert tickets" ON public.tickets;
-DROP POLICY IF EXISTS "Admins all txs" ON public.transactions;
-DROP POLICY IF EXISTS "Users own txs" ON public.transactions;
-DROP POLICY IF EXISTS "Admins can delete profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
-DROP POLICY IF EXISTS "Admins can insert profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Admins can read all profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Users can read own profile" ON public.profiles;
+-- 1. LIMPIEZA ABSOLUTA DE POLÍTICAS (Prevenir conflictos)
 DROP POLICY IF EXISTS "Admins full access profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Admins full access tickets" ON public.tickets;
-DROP POLICY IF EXISTS "Admins full access txs" ON public.transactions;
+DROP POLICY IF EXISTS "Users read own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Owner full access" ON public.profiles;
+DROP POLICY IF EXISTS "Seller read all" ON public.profiles;
+DROP POLICY IF EXISTS "Seller update balance" ON public.profiles;
+DROP POLICY IF EXISTS "Client read own" ON public.profiles;
+DROP POLICY IF EXISTS "Owner all txs" ON public.transactions;
+DROP POLICY IF EXISTS "Seller insert txs" ON public.transactions;
+DROP POLICY IF EXISTS "Seller select txs" ON public.transactions;
+DROP POLICY IF EXISTS "Client select own txs" ON public.transactions;
+DROP POLICY IF EXISTS "Owner all tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Client all tickets" ON public.tickets;
+DROP POLICY IF EXISTS "Owner manage results" ON public.daily_results;
+DROP POLICY IF EXISTS "Public read results" ON public.daily_results;
 
--- 2. Políticas de Perfiles (Admin Total + Delete)
+-- 2. HABILITAR RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Admins full access profiles" ON public.profiles
-FOR ALL
-USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin' );
-
-CREATE POLICY "Users read own profile" ON public.profiles
-FOR SELECT
-USING ( auth.uid() = id );
-
--- 3. Políticas de Tickets y Transacciones
-ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_results ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Admins full access tickets" ON public.tickets 
-FOR ALL 
-USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'admin');
+-- 3. POLÍTICAS DE PERFILES (JERARQUÍA)
+-- Owner: Dios (Ver y editar todo)
+CREATE POLICY "Owner full access" ON public.profiles
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
 
-CREATE POLICY "Users select own tickets" ON public.tickets 
-FOR SELECT 
-USING (auth.uid() = user_id);
+-- Seller: Ver todos (para buscar clientes) y editar saldos
+CREATE POLICY "Seller read all" ON public.profiles
+FOR SELECT USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
 
-CREATE POLICY "Users insert own tickets" ON public.tickets 
-FOR INSERT 
-WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Seller update balance" ON public.profiles
+FOR UPDATE USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
 
-CREATE POLICY "Admins full access txs" ON public.transactions 
-FOR ALL 
-USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'admin');
+-- Client: Solo ver su propio perfil
+CREATE POLICY "Client read own" ON public.profiles
+FOR SELECT USING ( auth.uid() = id );
 
-CREATE POLICY "Users select own txs" ON public.transactions 
-FOR SELECT 
-USING (auth.uid() = user_id);
+-- 4. POLÍTICAS DE TRANSACCIONES
+CREATE POLICY "Owner all txs" ON public.transactions
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'owner' );
 
--- 4. Configurar Borrado en Cascada (Clave para que funcione 'Eliminar')
--- Esto hace que si borras el perfil, se borren tickets y transacciones automáticamente.
-DO $$
-BEGIN
-    -- Tickets
-    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'tickets_user_id_fkey') THEN
-        ALTER TABLE public.tickets DROP CONSTRAINT tickets_user_id_fkey;
-    END IF;
-    
-    ALTER TABLE public.tickets 
-    ADD CONSTRAINT tickets_user_id_fkey 
-    FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+CREATE POLICY "Seller manage txs" ON public.transactions
+FOR ALL USING ( (auth.jwt() -> 'user_metadata' ->> 'role') = 'seller' );
 
-    -- Transactions
-    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'transactions_user_id_fkey') THEN
-        ALTER TABLE public.transactions DROP CONSTRAINT transactions_user_id_fkey;
-    END IF;
+CREATE POLICY "Client view own txs" ON public.transactions
+FOR SELECT USING ( auth.uid() = user_id );
 
-    ALTER TABLE public.transactions 
-    ADD CONSTRAINT transactions_user_id_fkey 
-    FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-END $$;
+-- 5. POLÍTICAS DE TICKETS
+CREATE POLICY "Owner all tickets" ON public.tickets 
+FOR ALL USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'owner');
 
--- 5. Función RPC para Crear Usuarios (Admin)
-CREATE OR REPLACE FUNCTION public.create_user_by_admin(
-  new_email text,
-  new_password text,
-  new_name text,
-  new_phone text,
-  new_cedula text
-) RETURNS uuid
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth, extensions
-AS $$
+CREATE POLICY "Client manage own tickets" ON public.tickets 
+FOR ALL USING (auth.uid() = user_id);
+
+-- 6. RESULTADOS Y SORTEOS
+CREATE POLICY "Owner manage results" ON public.daily_results
+FOR ALL USING ((auth.jwt() -> 'user_metadata' ->> 'role') = 'owner');
+
+CREATE POLICY "Public read results" ON public.daily_results
+FOR SELECT USING (true);
+
+-- Permisos públicos básicos
+GRANT ALL ON public.daily_results TO authenticated;
+GRANT ALL ON public.daily_results TO service_role;
+
+-- 7. FUNCIONES RPC CRÍTICAS (Recrear para asegurar permisos)
+CREATE OR REPLACE FUNCTION public.create_seller_by_owner(
+  new_email text, new_password text, new_name text, new_phone text, new_cedula text
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions AS $$
 DECLARE
   new_id uuid;
-  crypted_pw text;
 BEGIN
-  IF (auth.jwt() -> 'user_metadata' ->> 'role') <> 'admin' THEN
-    RAISE EXCEPTION 'Permiso denegado';
+  IF (auth.jwt() -> 'user_metadata' ->> 'role') <> 'owner' THEN
+    RAISE EXCEPTION 'Acceso denegado: Solo Owner';
   END IF;
-
   new_id := gen_random_uuid();
-  crypted_pw := crypt(new_password, gen_salt('bf'));
-
   INSERT INTO auth.users (
     instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
     raw_app_meta_data, raw_user_meta_data, created_at, updated_at
   ) VALUES (
-    '00000000-0000-0000-0000-000000000000', new_id, 'authenticated', 'authenticated', new_email, crypted_pw, now(),
-    '{"provider": "email", "providers": ["email"]}',
-    jsonb_build_object('role', 'client', 'name', new_name),
-    now(), now()
+    '00000000-0000-0000-0000-000000000000', new_id, 'authenticated', 'authenticated', new_email, crypt(new_password, gen_salt('bf')), now(),
+    '{"provider": "email", "providers": ["email"]}', jsonb_build_object('role', 'seller', 'name', new_name), now(), now()
   );
-
   INSERT INTO public.profiles (id, email, name, phone, cedula, role, balance, created_at)
-  VALUES (new_id, new_email, new_name, new_phone, new_cedula, 'client', 0, now())
-  ON CONFLICT (id) DO UPDATE
-  SET name = EXCLUDED.name, phone = EXCLUDED.phone, cedula = EXCLUDED.cedula;
-
+  VALUES (new_id, new_email, new_name, new_phone, new_cedula, 'seller', 0, now());
   RETURN new_id;
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.claim_winnings(ticket_id uuid, win_amount numeric) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, extensions AS $$
+DECLARE
+  t_user_id uuid;
+  t_status text;
+BEGIN
+  SELECT user_id, status INTO t_user_id, t_status FROM public.tickets WHERE id = ticket_id;
+  IF t_user_id IS NULL OR t_user_id <> auth.uid() THEN RAISE EXCEPTION 'Ticket inválido'; END IF;
+  IF t_status = 'paid' THEN RAISE EXCEPTION 'Ya pagado'; END IF;
+  UPDATE public.tickets SET status = 'paid' WHERE id = ticket_id;
+  UPDATE public.profiles SET balance = balance + win_amount WHERE id = auth.uid();
+  INSERT INTO public.transactions (user_id, type, amount, details) VALUES (auth.uid(), 'winnings', win_amount, 'Premio Ticket ' || substring(ticket_id::text, 1, 8));
+END;
+$$;
+
 COMMIT;
+
+-- ⬇⬇⬇ SUPER USUARIO (GOD MODE) ⬇⬇⬇
+-- CAMBIE 'admin@tiempos.pro' POR SU CORREO Y EJECUTE:
+
+/*
+UPDATE public.profiles SET role = 'owner', balance = 99999999 WHERE email = 'admin@tiempos.pro';
+UPDATE auth.users SET raw_user_meta_data = jsonb_set(raw_user_meta_data, '{role}', '"owner"') WHERE email = 'admin@tiempos.pro';
+*/
 `;
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-            <div className="w-full max-w-4xl bg-[#0f172a] border-2 border-red-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(239,68,68,0.3)] overflow-hidden flex flex-col max-h-[90vh] animate-bounce-in">
+            <div className="w-full max-w-4xl bg-[#0f172a] border-2 border-purple-500 rounded-2xl p-8 shadow-[0_0_50px_rgba(168,85,247,0.3)] overflow-hidden flex flex-col max-h-[90vh] animate-bounce-in">
                 <div className="flex items-start gap-4 mb-6">
-                    <div className="p-4 bg-red-900/30 rounded-full border border-red-500 animate-pulse">
-                        <BoltIcon className="h-10 w-10 text-red-500" />
+                    <div className="p-4 bg-purple-900/30 rounded-full border border-purple-500 animate-pulse">
+                        <SparklesIcon className="h-10 w-10 text-purple-500" />
                     </div>
                     <div>
-                        <h2 className="text-2xl font-black text-white uppercase tracking-widest">Reparación de Sistema (v24)</h2>
-                        <p className="text-red-400 font-mono mt-2 text-sm bg-red-950/50 p-2 rounded border border-red-900">
-                            {error}
+                        <h2 className="text-2xl font-black text-white uppercase tracking-widest">Recuperación de Sistema (V30)</h2>
+                        <p className="text-purple-300 font-mono mt-2 text-sm">
+                           Protocolo de restauración de permisos y asignación de Super Usuario.
                         </p>
+                        {error && (
+                             <p className="text-red-400 font-mono mt-2 text-xs bg-red-950/50 p-2 rounded border border-red-900">
+                                Estado: {error}
+                            </p>
+                        )}
                     </div>
                 </div>
                 
                 <div className="bg-blue-900/20 border border-blue-600/30 p-4 rounded-lg mb-6 text-blue-200 text-sm">
-                    <strong>DIAGNÓSTICO:</strong> Fallo crítico en permisos o integridad referencial. El Script V24 reestablece todas las políticas de seguridad y activa el "Borrado en Cascada" para eliminar usuarios limpiamente.
+                    <strong>PARA OBTENER ACCESO TOTAL:</strong> Copie el script. Al final (líneas verdes), reemplace el correo de ejemplo por 
+                    <span className="text-yellow-400 font-bold"> SU CORREO ELECTRÓNICO</span> y ejecute todo en el Editor SQL de Supabase.
                 </div>
 
                 <div className="relative flex-grow overflow-hidden rounded-xl border border-gray-700 bg-[#020617]">
                     <div className="absolute top-0 left-0 right-0 bg-[#1e293b] px-4 py-2 flex justify-between items-center border-b border-gray-700">
-                        <span className="text-xs font-mono text-gray-400">full_repair_v24.sql</span>
+                        <span className="text-xs font-mono text-gray-400">god_mode_v30.sql</span>
                         <button 
                             onClick={() => navigator.clipboard.writeText(sqlScript)}
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors"
+                            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors shadow-[0_0_15px_rgba(147,51,234,0.4)]"
                         >
                             <ClipboardCheckIcon className="h-4 w-4"/> COPIAR SCRIPT
                         </button>
@@ -176,8 +179,8 @@ COMMIT;
                     <button onClick={() => window.location.reload()} className="px-6 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors">
                         Cancelar
                     </button>
-                    <button onClick={onClose} className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg transition-colors">
-                        He ejecutado el Script v24
+                    <button onClick={onClose} className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold shadow-lg transition-colors">
+                        Entendido (Recargar)
                     </button>
                 </div>
             </div>
@@ -187,10 +190,9 @@ COMMIT;
 
 function App() {
   const [session, setSession] = useState<any>(null);
-  const [view, setView] = useState<'admin' | 'client'>('client');
+  const [view, setView] = useState<'admin' | 'client'>('client'); // 'admin' view is shared for Owner/Seller
   const [showSecurity, setShowSecurity] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
-  // New state to control the Fix Modal specifically
   const [showFixModal, setShowFixModal] = useState(false);
   const [fixModalError, setFixModalError] = useState('');
 
@@ -198,13 +200,15 @@ function App() {
   useEffect(() => {
       supabase.auth.getSession().then(({ data: { session } }) => {
           setSession(session);
-          if(session?.user?.user_metadata?.role === 'admin') setView('admin');
+          const role = session?.user?.user_metadata?.role;
+          if(role === 'owner' || role === 'seller') setView('admin');
           setAuthChecking(false);
       });
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
           setSession(session);
-          if(session?.user?.user_metadata?.role === 'admin') setView('admin');
+          const role = session?.user?.user_metadata?.role;
+          if(role === 'owner' || role === 'seller') setView('admin');
           else if(session) setView('client');
       });
 
@@ -214,7 +218,6 @@ function App() {
   // Fetch Data Hook
   const { users, transactions, dbDailyResults, loading, error, refresh, optimisticUpdateResult, optimisticAddUser, optimisticUpdateUser, optimisticDeleteUser } = useSupabaseData(session?.user.id);
 
-  // Handle global errors (like RLS recursion)
   useEffect(() => {
       if (error) {
           const lowerErr = error.toLowerCase();
@@ -225,29 +228,23 @@ function App() {
       }
   }, [error]);
 
-  // --- JPS AUTO-SYNC ENGINE ---
+  // --- JPS AUTO-SYNC ENGINE (Only Owner) ---
   useEffect(() => {
-      if (session?.user?.user_metadata?.role !== 'admin') return;
+      if (session?.user?.user_metadata?.role !== 'owner') return;
 
       const syncJPS = async () => {
-          console.log("🤖 [AUTO-SYNC] Buscando resultados oficiales JPS...");
           try {
               const { today } = await fetchOfficialData();
-              
               let hasUpdates = false;
               for (const res of today) {
                   if (!res.number) continue;
-
                   const resDateStr = new Date(res.date).toLocaleDateString('es-CR');
-                  
                   const existing = dbDailyResults.find(r => {
                       const dbDateStr = new Date(r.date).toLocaleDateString('es-CR');
                       return r.draw === res.draw && dbDateStr === resDateStr;
                   });
 
                   if (!existing || existing.number !== res.number) {
-                       console.log(`✨ [NEW RESULT] Sorteo ${res.draw}: ${res.number} (Bolita: ${res.ballColor})`);
-                       
                        const { error: upsertError } = await supabase.from('daily_results').upsert({
                            date: new Date(res.date).toISOString(),
                            draw_type: res.draw,
@@ -259,24 +256,18 @@ function App() {
                        if (!upsertError) hasUpdates = true;
                   }
               }
-
-              if (hasUpdates) {
-                  console.log("✅ [SYNC COMPLETE] Base de datos actualizada.");
-                  refresh();
-              }
+              if (hasUpdates) refresh();
           } catch (e) {
-              console.warn("⚠️ [SYNC FAILED] No se pudo conectar con JPS (Reintentando luego...)", e);
+              console.warn("Sync warn", e);
           }
       };
 
       const interval = setInterval(syncJPS, 60000 * 5); 
       syncJPS();
-
       return () => clearInterval(interval);
   }, [session, dbDailyResults, refresh]);
 
   // --- DATA PROCESSING ---
-  
   const currentUser = useMemo(() => {
       if (!session || !users.length) return null;
       return users.find(u => u.id === session.user.id) || null;
@@ -284,11 +275,9 @@ function App() {
 
   const processedHistory = useMemo(() => {
       const groups: Record<string, HistoryResult> = {};
-      
       dbDailyResults.forEach(r => {
           const dateObj = new Date(r.date);
           const dateKey = dateObj.toLocaleDateString('es-CR');
-          
           if (!groups[dateKey]) {
               groups[dateKey] = {
                   date: r.date,
@@ -299,7 +288,6 @@ function App() {
                   }
               };
           }
-          
           if (r.draw) {
               groups[dateKey].results[r.draw] = {
                   number: r.number || '',
@@ -308,16 +296,11 @@ function App() {
               };
           }
       });
-
       return Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [dbDailyResults]);
 
   const nextDrawTime = useMemo(() => {
-      const now = new Date();
-      const h = now.getHours();
-      if (h < 13) return "12:55 PM";
-      if (h < 16 || (h === 16 && now.getMinutes() < 30)) return "4:30 PM";
-      return "7:30 PM";
+      return getNextDrawLabel();
   }, []);
 
   // --- ACTIONS ---
@@ -325,6 +308,7 @@ function App() {
       return await supabase.auth.signInWithPassword({ email: e, password: p });
   };
 
+  // Original Register for Clients (Public)
   const handleRegister = async (data: Partial<User>, role: 'admin' | 'client') => {
       return await supabase.auth.signUp({
           email: data.email,
@@ -333,7 +317,7 @@ function App() {
               data: {
                   name: data.name,
                   phone: data.phone,
-                  role: role, 
+                  role: 'client', // Always client on public register
                   balance: 0,
                   cedula: data.cedula || ''
               }
@@ -346,96 +330,100 @@ function App() {
       setView('client');
   };
 
-  // Admin Actions
   const handleRecharge = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
       if(!user) return;
-      
       const newBalance = user.balance + amount;
-      
-      // 1. Optimistic Update (Instant Feedback)
       optimisticUpdateUser(userId, { balance: newBalance });
 
-      // 2. DB Update
       const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
-
       if (error) {
-          console.error("Error recargando saldo:", error);
-          // Trigger repair modal if permission denied
-          if (error.message.includes('policy') || error.message.includes('permission')) {
-             setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V24.`);
-             setShowFixModal(true);
-          }
+          setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V30.`);
+          setShowFixModal(true);
           refresh();
           return;
       }
-
       await supabase.from('transactions').insert({
           user_id: userId,
           type: 'deposit',
           amount: amount,
-          details: 'Recarga administrativa'
+          details: currentUser?.role === 'owner' ? 'Recarga Dueño' : `Recarga Vendedor ${currentUser?.name.split(' ')[0]}`
       });
-      
       refresh();
   };
 
   const handleWithdraw = async (userId: string, amount: number) => {
       const user = users.find(u => u.id === userId);
       if(!user) return;
-
       const newBalance = user.balance - amount;
       if(newBalance < 0) return;
-
-      // 1. Optimistic Update
       optimisticUpdateUser(userId, { balance: newBalance });
 
       const { error } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
-      
       if (error) {
-          console.error("Error retirando saldo:", error);
-          if (error.message.includes('policy') || error.message.includes('permission')) {
-             setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V24.`);
-             setShowFixModal(true);
-          }
+          setFixModalError(`Error de Permisos: ${error.message}. Ejecute Script V30.`);
+          setShowFixModal(true);
           refresh();
           return;
       }
-
       await supabase.from('transactions').insert({
           user_id: userId,
           type: 'withdraw',
           amount: amount,
-          details: 'Retiro de fondos'
+          details: currentUser?.role === 'owner' ? 'Retiro Dueño' : `Retiro Vendedor ${currentUser?.name.split(' ')[0]}`
       });
       refresh();
   };
 
   const handleUpdateResult = async (draw: DrawType, number: string | null, ballColor: BallColor | null, reventados: string | null) => {
-      const existing = dbDailyResults.find(r => r.draw === draw && new Date(r.date).toLocaleDateString() === new Date().toLocaleDateString());
-      
-      if(existing) {
-           const { error } = await supabase.from('daily_results').update({
-               number, ball_color: ballColor, reventados_number: reventados
-           }).eq('id', existing.id);
-           if(!error) optimisticUpdateResult({ ...existing, number, ballColor, reventadosNumber: reventados });
-           return !error;
-      } else {
-           const { error } = await supabase.from('daily_results').insert({
-               date: new Date().toISOString(),
-               draw_type: draw,
-               number,
-               ball_color: ballColor,
-               reventados_number: reventados
-           });
-           refresh();
-           return !error;
+      if (currentUser?.role !== 'owner') return false; 
+
+      try {
+          const now = new Date();
+          const existing = dbDailyResults.find(r => {
+              const rDate = new Date(r.date);
+              return r.draw === draw && rDate.toDateString() === now.toDateString();
+          });
+          
+          let result;
+          if(existing) {
+               result = await supabase.from('daily_results').update({
+                   number, ball_color: ballColor, reventados_number: reventados
+               }).eq('id', existing.id);
+          } else {
+               result = await supabase.from('daily_results').insert({
+                   date: now.toISOString(),
+                   draw_type: draw,
+                   number,
+                   ball_color: ballColor,
+                   reventados_number: reventados
+               });
+          }
+
+          if (result.error) {
+              setFixModalError(`Error DB: ${result.error.message}. Ejecute Script V30.`);
+              setShowFixModal(true);
+              return false;
+          }
+          if(existing) optimisticUpdateResult({ ...existing, number, ballColor, reventadosNumber: reventados });
+          else refresh();
+          return true;
+
+      } catch (e: any) {
+          setFixModalError(`Excepción: ${e.message}. Ejecute Script V30.`);
+          setShowFixModal(true);
+          return false;
       }
   };
 
-  const handleRegisterClient = async (userData: Partial<User>) => {
-      // Use the V24 RPC function to create user as Admin
-      const { data, error } = await supabase.rpc('create_user_by_admin', {
+  const handleRegisterUserInternal = async (userData: Partial<User>, targetRole: 'client' | 'seller') => {
+      // For Owner role, we use RPC to bypass registration limits and set roles immediately
+      const rpcFunc = targetRole === 'seller' ? 'create_seller_by_owner' : 'create_user_by_admin';
+      
+      // Fallback: If the RPC doesn't exist yet (DB not updated), we try normal signup if it's a client
+      // But for sellers, we MUST have the RPC.
+      
+      const { data, error } = await supabase.rpc(rpcFunc, {
           new_email: userData.email,
           new_password: userData.password,
           new_name: userData.name,
@@ -444,42 +432,29 @@ function App() {
       });
 
       if (error) {
-          console.error("Error creating user:", error);
-          const msg = error.message.toLowerCase();
-
-          if (msg.includes('function') && msg.includes('create_user_by_admin')) {
-               setFixModalError("Falta la función 'create_user_by_admin'. Ejecute el Script v24.");
+          if (error.message.includes('function') || error.message.includes('permission')) {
+               setFixModalError(`Falta función '${rpcFunc}'. Ejecute el Script v30.`);
                setShowFixModal(true);
                return { error: { message: "Falta configuración DB. Ver modal." }, data: null };
           }
-
-          if (msg.includes('full_name') || msg.includes('column')) {
-              setFixModalError("Conflicto de columnas. Ejecute el Script v24.");
-              setShowFixModal(true);
-              return { error: { message: "Conflicto de base de datos. Ver modal." }, data: null };
-          }
-
           return { error, data: null };
       }
 
-      // --- OPTIMISTIC UPDATE START ---
       if (data) {
           const optimUser: User = {
-              id: data, // The UUID returned by RPC
+              id: data,
               email: userData.email || '',
-              name: userData.name || 'Nuevo Usuario',
+              name: userData.name || (targetRole === 'seller' ? 'Nuevo Vendedor' : 'Nuevo Cliente'),
               cedula: userData.cedula || '',
               phone: userData.phone || '',
-              role: 'client',
+              role: targetRole,
               balance: 0,
               tickets: [],
-              password: '', // Internal use only
+              password: '', 
               createdAt: new Date() 
           };
           optimisticAddUser(optimUser);
       }
-      // --- OPTIMISTIC UPDATE END ---
-      
       setTimeout(() => { refresh(); }, 1500); 
       return { data: { user: { id: data }, session: null }, error: null };
   };
@@ -487,18 +462,9 @@ function App() {
   const handleForceResetPassword = async (userId: string) => {
      const user = users.find(u => u.id === userId);
      if(!user || !user.email) return;
-
      try {
-         const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-             redirectTo: window.location.origin
-         });
-         
-         if (error) throw error;
-         
-     } catch (err: any) {
-         console.error("Error sending reset email:", err);
-         alert(`Error enviando correo: ${err.message}`);
-     }
+         await supabase.auth.resetPasswordForEmail(user.email, { redirectTo: window.location.origin });
+     } catch (err) {}
   };
 
   const handleToggleBlock = async (userId: string, currentStatus: boolean) => {
@@ -509,55 +475,33 @@ function App() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-      // 1. Optimistic Delete (Visual feedback first)
       optimisticDeleteUser(userId);
-
       try {
-          // 2. Attempt cascading delete manually first (safest approach if cascade is missing)
-          // Ignore errors here to allow profile delete to try its best
           await supabase.from('transactions').delete().eq('user_id', userId);
           await supabase.from('tickets').delete().eq('user_id', userId);
-
-          // 3. Delete profile (This is the critical step)
           const { error } = await supabase.from('profiles').delete().eq('id', userId);
-          
           if (error) throw error;
-
           refresh();
           return true;
-
       } catch (error: any) {
-          console.error("Error deleting user:", error);
-          
-          // Show repair modal for any error to be safe
-          setFixModalError(`Error de Eliminación: ${error.message || error}. Ejecute Script V24.`);
+          setFixModalError(`Error de Eliminación: ${error.message}. Ejecute Script V30.`);
           setShowFixModal(true);
-          
-          refresh(); // Revert optimistic delete by re-fetching if failed
+          refresh();
           return false;
       }
   };
 
-  // Shared Purchase Logic (used by Client Panel AND Admin Panel POS)
   const handlePurchase = async (userId: string, tickets: Omit<Ticket, 'id' | 'purchaseDate'>[]) => {
       const totalCost = tickets.reduce((sum, t) => sum + t.amount + (t.reventadosAmount || 0), 0);
-      
       const user = users.find(u => u.id === userId);
       if(!user) return { success: false, message: 'Usuario no encontrado' };
-      
       if(user.balance < totalCost) return { success: false, message: 'Saldo insuficiente' };
 
       const newBalance = user.balance - totalCost;
-      
-      // Optimistic update
       optimisticUpdateUser(userId, { balance: newBalance });
 
-      // Update Balance
       const { error: balError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
-      if(balError) {
-           refresh();
-           return { success: false, message: balError.message };
-      }
+      if(balError) { refresh(); return { success: false, message: balError.message }; }
 
       const ticketsToInsert = tickets.map(t => ({
           user_id: userId,
@@ -570,9 +514,7 @@ function App() {
       }));
       
       const { error: tktError } = await supabase.from('tickets').insert(ticketsToInsert);
-      if(tktError) {
-          return { success: false, message: tktError.message };
-      }
+      if(tktError) return { success: false, message: tktError.message };
 
       await supabase.from('transactions').insert({
           user_id: userId,
@@ -586,21 +528,23 @@ function App() {
   };
 
   const handleClaimWinnings = async (ticketId: string, amount: number, type: 'regular' | 'reventados') => {
-      await supabase.from('tickets').update({ status: 'paid' }).eq('id', ticketId);
+      // Use secure RPC instead of direct update to ensure transactional integrity
+      const { error } = await supabase.rpc('claim_winnings', { 
+          ticket_id: ticketId, 
+          win_amount: amount 
+      });
       
+      if (error) {
+          setFixModalError(`Error RPC Claim: ${error.message}. Ejecute Script V30.`);
+          setShowFixModal(true);
+          return;
+      }
+
+      // Optimistic update for better UX
       const user = currentUser;
       if(user) {
           const newBalance = user.balance + amount;
           optimisticUpdateUser(user.id, { balance: newBalance });
-
-          await supabase.from('profiles').update({ balance: newBalance }).eq('id', user.id);
-          
-          await supabase.from('transactions').insert({
-              user_id: user.id,
-              type: 'winnings',
-              amount: amount,
-              details: `Premio ${type === 'reventados' ? 'REVENTADO' : ''} Ticket #${ticketId.slice(0,4)}`
-          });
           refresh();
       }
   };
@@ -608,11 +552,7 @@ function App() {
   if (authChecking) {
       return (
           <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
-              <div className="relative w-24 h-24">
-                  <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-full"></div>
-                  <div className="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
-                  <BoltIcon className="absolute inset-0 m-auto h-8 w-8 text-indigo-500 animate-pulse"/>
-              </div>
+              <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
           </div>
       );
   }
@@ -620,7 +560,7 @@ function App() {
   return (
     <>
       {showFixModal && (
-          <DatabaseFixModal error={fixModalError} onClose={() => setShowFixModal(false)} />
+          <DatabaseFixModal error={fixModalError || "Acceso Manual"} onClose={() => setShowFixModal(false)} />
       )}
 
       {!session ? (
@@ -642,7 +582,7 @@ function App() {
              />
              
              <main className="container mx-auto px-4 pt-8 relative z-10">
-                {view === 'admin' && currentUser?.role === 'admin' ? (
+                {view === 'admin' && (currentUser?.role === 'owner' || currentUser?.role === 'seller') ? (
                     <AdminPanel 
                         currentUser={currentUser}
                         users={users}
@@ -653,7 +593,7 @@ function App() {
                         onWithdraw={handleWithdraw}
                         onUpdateResult={handleUpdateResult}
                         onUpdateHistory={() => {}}
-                        onRegisterClient={handleRegisterClient}
+                        onRegisterClient={handleRegisterUserInternal}
                         onForceResetPassword={handleForceResetPassword}
                         onToggleBlock={handleToggleBlock}
                         onDeleteUser={handleDeleteUser}
@@ -671,17 +611,12 @@ function App() {
                         onClaimWinnings={handleClaimWinnings}
                     />
                 ) : (
-                    <div className="text-center py-20">
-                        <div className="animate-spin h-10 w-10 border-4 border-brand-accent border-t-transparent rounded-full mx-auto mb-4"></div>
-                        <p className="text-brand-text-secondary">Sincronizando perfil...</p>
-                    </div>
+                    <div className="text-center py-20">Cargando...</div>
                 )}
              </main>
-             
-             <Footer />
+             <Footer onOpenGodMode={() => { setFixModalError("Acceso Manual a Consola de Dios"); setShowFixModal(true); }} />
         </div>
       )}
-
       <SecurityModal isOpen={showSecurity} onClose={() => setShowSecurity(false)} />
     </>
   );

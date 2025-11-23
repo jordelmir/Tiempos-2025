@@ -155,7 +155,7 @@ export const useSupabaseData = (sessionUserId: string | null) => {
         password: '', 
         phone: p.phone || '',
         balance: safeNum(p.balance),
-        role: p.role as 'admin' | 'client',
+        role: p.role as 'owner' | 'seller' | 'client',
         blocked: p.blocked || false, 
         createdAt: p.created_at ? safeDate(p.created_at) : undefined,
         tickets: tickets.filter((t: any) => t.user_id === p.id).map((t: any) => ({

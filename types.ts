@@ -21,7 +21,7 @@ export interface User {
   password: string; // Hashed password
   phone: string;
   balance: number;
-  role: 'admin' | 'client';
+  role: 'owner' | 'seller' | 'client'; // UPDATED ROLES
   blocked?: boolean; // New field for security lockout
   adminId?: string; // ID of the admin who manages this user
   tickets: Ticket[];
