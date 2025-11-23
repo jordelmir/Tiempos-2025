@@ -1,16 +1,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// --- Get Supabase credentials from environment variables ---
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Credenciales proporcionadas
+export const supabaseUrl = 'https://gballkiujnepmmbbmhhq.supabase.co';
+export const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYWxsa2l1am5lcG1tYmJtaGhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0Nzc2NjMsImV4cCI6MjA3OTA1MzY2M30.YGetSUqOD30FxMN3rEFxjdW0OYhvZDfn5Scm4gbRpp0';
 
-// --- Validate environment variables ---
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Supabase URL and Anon Key are required. Make sure to set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.');
-}
-
-// --- Initialize and export the Supabase client ---
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export interface DBProfile {
