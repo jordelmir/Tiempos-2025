@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Environment Variables
+# Ignore local environment variables to prevent exposing sensitive keys.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
